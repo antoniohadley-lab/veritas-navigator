@@ -97,11 +97,13 @@ final_disposition    last known state
 ### GPS Standard (Green / Yellow / Red)
 Every response is classified before delivery:
 
-- **Green** — describes route only: facts, deadlines, document names, common next steps. Auto-delivered.
+- **Green** — describes route only: facts, deadlines, document names, common next steps, pre-filled factual form fields. Auto-delivered.
 - **Yellow** — borderline, close to but not yet crossing into legal judgment. Triggers the Yellow State Machine (see Technical Guardrails).
-- **Red** — crosses into legal judgment, prediction, or strategy. Blocked; user routed to licensed counsel.
+- **Red** — crosses into legal judgment, prediction, strategy, or argument-writing. Blocked; user routed to licensed counsel or free legal aid/court self-help resources.
 
 **The test:** A GPS describes the route and the distance. It never tells the driver *why* to go somewhere or whether they *should* go. Navigator does the same — what the document is, what deadline applies, what people in this situation commonly do next. Never what decision to make, what argument to use, or what the outcome will be.
+
+**Motion rule (resolved June 19, 2026):** Navigator identifies the exact motion type, locates the correct official Michigan court form, and pre-fills every factual field (names, dates, case number, court, deadline) from confirmed case data. Navigator does not write the argument paragraph — the substantive legal reasoning for why the motion should be granted. Where the argument paragraph is needed, Navigator names the specific free resource (legal aid or court self-help center) where the user can get that completed.
 
 ### Disclosure Structure
 - **Tier 1 (passive):** Always present as a UI element, not repeated by the AI in message bodies.
@@ -191,8 +193,10 @@ When a matter exceeds self-help navigation (active litigation with represented o
 | Product | Price | Trigger |
 |---------|-------|---------|
 | Veritas Shield | $4.99/month | Post-resolution conversion, or direct signup |
-| Veritas Navigator | $29/month | Active dispute, charged at Layer 3 document gate |
+| Veritas Navigator | $59/month or per-packet *(hypothesis — not yet validated against real transactions)* | Active dispute, charged at Layer 3 document gate |
 | Veritas Marketplace | ~15% fee | Field Services (notarization, process serving, filing) |
+
+**MVP launches free.** No payment processing at MVP testing stage (Founding Document 8, Weeks 1-3). Payment activates at public launch (Weeks 4-6). The system prompt must not present a price to users during MVP testing. The Navigator packet price is configurable via `NAVIGATOR_PACKET_PRICE` env var (in cents) and must be re-validated against real transactions before public launch.
 
 B2B tiers (Companion, Pro, Verified) are post-MVP. Do not build or expose them now.
 
