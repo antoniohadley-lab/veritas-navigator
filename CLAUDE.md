@@ -23,7 +23,7 @@ The `/navigator` chat page shows **empty response bubbles** even though the serv
 
 Live Stripe payment is included now (not deferred). The founder has funded Stripe setup for Veritas Systems & Technologies L.L.C. Charge for the Layer 3 document packet before generating the final document.
 
-MVP pricing: **$29/month** for active Navigator use. **$4.99/month** for Shield (passive monitoring, post-resolution). No free tier at this stage.
+MVP pricing: **$4.99/month** for Veritas Shield. **$15.00 flat, one-time** for the Timeline, Affidavit, and Exhibits packet — same price whether the user needs one component, two, or all three; no itemized breakdown. **$99/month per attorney** for B2B Intake Room access, billed individually per verified attorney (seat-based). No free tier for the packet itself; Layer 1 and Layer 2 triage remain free.
 
 ---
 
@@ -189,8 +189,11 @@ At MVP, Shield means the user has an active account with retained history. It do
 - Security Deposit Disputes (MCL 554.602-609)
 - Debt Collection Summons / Judgment Defense (FDCPA 15 U.S.C. § 1692, MCL 339.901)
 - Medical & Consumer Billing Disputes (No Surprises Act, MCL 500.2001) — never labeled "credit repair"; Navigator does not contact credit bureaus or handle SSNs for credit dispute purposes
-- Utility Disconnection (MPSC rules, Mich. Admin. Code R 460.101)
+- Utility Disconnection — Investor-Owned Energy (MPSC rules, Mich. Admin. Code R 460.101; applies to electric and natural gas utilities such as Consumers Energy, DTE Energy)
+- Utility Disconnection — Municipal Water/Sewer (Home Rule City Act, MCL 117.1 et seq.; federal due process floor per *Memphis Light, Gas & Water Div. v. Craft*, 436 U.S. 1 (1978); governing notice/dispute period set by the specific municipality's ordinance — verified individually per jurisdiction, never assumed to match the energy-utility rule)
 - Debt Validation Requests (FDCPA § 809)
+
+This brings the MVP category count to seven once the Utility Disconnection categories are built. Housing & Eviction remains first in build order.
 
 **Future phase (not MVP):** Family & Custody, Employment Disputes.
 
@@ -219,12 +222,15 @@ When a matter exceeds self-help navigation (active litigation with represented o
 | Product | Price | Trigger |
 |---------|-------|---------|
 | Veritas Shield | $4.99/month | Post-resolution conversion, or direct signup |
-| Veritas Navigator | $59/month or per-packet *(hypothesis — not yet validated against real transactions)* | Active dispute, charged at Layer 3 document gate |
+| Timeline, Affidavit, and Exhibits packet | $15.00 flat, one-time | Charged at the Layer 3 → document gate; same price regardless of which components are needed |
 | Veritas Marketplace | ~15% fee | Field Services (notarization, process serving, filing) |
+| B2B Intake Room | $99/month per attorney | Seat-based; each attorney individually verified against bar records before subscription activates |
 
-**MVP launches free.** No payment processing at MVP testing stage (Founding Document 8, Weeks 1-3). Payment activates at public launch (Weeks 4-6). The system prompt must not present a price to users during MVP testing. The Navigator packet price is configurable via `NAVIGATOR_PACKET_PRICE` env var (in cents) and must be re-validated against real transactions before public launch.
+The Navigator packet price is configurable via `NAVIGATOR_PACKET_PRICE` env var (currently 1500 cents = $15.00). Do not hardcode prices in UI copy — pull from env.
 
-B2B tiers (Companion, Pro, Verified) are post-MVP. Do not build or expose them now.
+**B2B Intake Room** may be built and exposed now, in dormant form — available for signup but not actively marketed or required for Housing & Eviction users. This does not block or delay the Housing & Eviction MVP. B2B Companion and Verified tiers remain post-MVP and undecided — this update does not authorize building those.
+
+This is an explicit founder override of the original "B2B post-MVP" restriction, made deliberately.
 
 ---
 
@@ -242,6 +248,20 @@ B2B tiers (Companion, Pro, Verified) are post-MVP. Do not build or expose them n
 | `navigator_cases` | One row per dispute; tracks `current_layer`, `completed_fields`, `classification_log`, payment/document status, Shield conversion fields |
 | `navigator_case_outcomes` | Outcome intelligence populated at 30/60/90 days post-resolution |
 | `compliance_review_queue` | Yellow-tier responses pending human review; status: `'pending'` → `'cleared'` |
+| `b2b_attorneys` | B2B Intake Room — attorney identity, bar verification status, and subscription state |
+
+**`b2b_attorneys` schema:**
+```
+attorney_id           uuid, primary key
+full_name             text
+bar_number            text
+bar_status            'pending_verification' | 'active' | 'inactive' | 'flagged'
+verification_date     timestamp
+subscription_status   'inactive' | 'active' | 'cancelled'
+stripe_subscription_id text
+created_at            timestamp
+```
+Bar status must be verified against bar records before `subscription_status` can be set to `'active'`. Never activate a seat for an unverified attorney.
 
 ### System Prompt Location
 The AI system prompt (Parts A, B, C of the governance document — Truth Mode, GPS Standard, disclosure, triage questions, referral rules) must be stored as a **separate constant or config file**, not hardcoded inline in the `/api/chat` route handler.
@@ -257,8 +277,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 STRIPE_SECRET_KEY
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-NAVIGATOR_PACKET_PRICE=2900        # $29.00 in cents
-SHIELD_PRICE=499                   # $4.99 in cents
+NAVIGATOR_PACKET_PRICE=1500        # $15.00 flat — Timeline, Affidavit, and Exhibits packet
+SHIELD_PRICE=499                   # $4.99/month — Veritas Shield recurring
+B2B_SEAT_PRICE=9900                # $99.00/month per verified attorney seat
 ```
 
 All Stripe activity is connected to the **Veritas Systems & Technologies L.L.C.** account (EIN 41-5302526), not a personal account. Use Stripe test mode before switching to live keys.
