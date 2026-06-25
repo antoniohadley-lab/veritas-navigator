@@ -6,7 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-**Veritas Navigator** is a Michigan legal self-help navigation tool that guides residents through disputes (evictions, debt collection, medical billing, utility disconnection, etc.) using a structured triage flow, generates legal documents, and connects users to Veritas Field Services or licensed counsel when self-help is insufficient.
+**Veritas Navigator + VROS** are two entry points into one shared event ledger — not two products.
+
+- **Navigator** — AI-assisted Michigan legal self-help navigation. No geography limit. Guides residents through disputes using a structured triage flow, builds a verified Timeline, generates the Factual Packet, and hands off to VROS when physical action is needed.
+- **VROS (Veritas Route Operations System)** — Field execution engine with a hard ~25-mile radius limit (4,000–10,000 people). Converts Navigator trust and data into paid physical action: mobile notary, process service, property inspection, specimen courier.
+
+Navigator's job is to generate trust and structured data at near-zero marginal cost. VROS's job is to convert a fraction of that trust into paid physical action inside the corridor. Every screen and every table below exists to make that handoff automatic instead of a cold call.
 
 Navigator is **not a law firm**. It describes routes, deadlines, and commonly-used procedures — it never gives legal opinions, predictions, or strategy. Every behavioral rule in this codebase enforces that line.
 
@@ -14,24 +19,23 @@ Navigator is **not a law firm**. It describes routes, deadlines, and commonly-us
 
 ## Immediate Priorities (Read Before Writing Any Code)
 
-### Fix First
-The `/navigator` chat page shows **empty response bubbles** even though the server logs show successful 200 responses from `/api/chat`. The API call succeeds; the assistant's response text is not rendering in the UI. Fix this bug before anything else.
-
 ### Build Order
-1. **Housing & Eviction** — fully working end-to-end: Layers 1 → 2 → 3 → Stripe payment gate → document generation → Shield conversion offer.
-2. **Stop and confirm with the founder** before adding any other category.
+1. **Shared data layer first** — `Case`, `FieldJob`, `VerificationEvent` tables (Prisma schema at `prisma/schema.prisma`). Do not build UI that generates events until these tables exist.
+2. **Housing & Eviction end-to-end** — Layers 1 → 2 → 3 → Stripe payment gate → Factual Packet export → Shield conversion offer. This is the first full Navigator case flow.
+3. **Handoff button** — "I need this served / notarized / documented" trigger that creates a `FieldJob` row linked to the `Case`. Even if it just creates the row and texts the founder, ship it.
+4. **Stop and confirm with the founder** before adding any other Navigator category or VROS service type.
 
-Live Stripe payment is included now (not deferred). The founder has funded Stripe setup for Veritas Systems & Technologies L.L.C. Charge for the Layer 3 document packet before generating the final document.
+Live Stripe payment is included now (not deferred). The founder has funded Stripe setup for Veritas Systems & Technologies L.L.C. Charge for the Factual Packet before generating it.
 
-MVP pricing: **$4.99/month** for Veritas Shield. **$15.00 flat, one-time** for the Timeline, Affidavit, and Exhibits packet — same price whether the user needs one component, two, or all three; no itemized breakdown. **$99/month per attorney** for B2B Intake Room access, billed individually per verified attorney (seat-based). No free tier for the packet itself; Layer 1 and Layer 2 triage remain free.
+Pricing: **$0** for Free tier (case intake, manual timeline, BYO AI cross-check template). **$4.99/month** for Veritas Shield. **$15.00 flat, one-time** for the Factual Packet. **$99/month per attorney** for Professional License (B2B portal seat). No itemized packet breakdown — same price regardless of which components are needed.
 
 ---
 
 ## Architecture
 
 ### Routing Conventions
-- `/navigator` — chat UI page
-- `/api/chat` — AI response endpoint (likely Next.js App Router or Pages API route)
+- `/navigator` — chat UI page (triage flow)
+- `/api/chat` — AI response endpoint (Next.js App Router)
 
 ### The Three-Layer Triage Flow
 
@@ -43,7 +47,7 @@ The conversation is structured into three mandatory layers enforced as **applica
 | **Layer 2** — Category Narrowing | Open, neutral status/narrative/time-sensitivity questions per category | Free |
 | **Layer 3** — Fact Collection | Specific facts for the relevant document (names, dates, amounts, case numbers) | Free until complete |
 | **Payment Gate** | Stripe pre-flight checklist → charge | Paid |
-| **Document Delivery** | Generated document packet | Output of paid step |
+| **Document Delivery** | Factual Packet export | Output of paid step |
 
 **Hard rule:** Navigator must not offer or generate a paid document until `completed_fields` matches `required_fields` for the specific form. Never assume, infer, or skip facts to reduce friction.
 
@@ -79,9 +83,158 @@ final_disposition    last known state
 
 ### Where Behavior Rules Live in Code
 
-- **System prompt for `/api/chat`** — Truth Mode, GPS Standard, disclosure triggers, triage questions, referral rules, Green/Yellow/Red classification instructions (see Parts A, B, C below).
+- **System prompt for `/api/chat`** — Truth Mode, GPS Standard, disclosure triggers, triage questions, referral rules, Green/Yellow/Red classification instructions.
 - **Persistent UI element** — Tier 1 disclosure text rendered as a footer under the chat input, not generated by the AI each turn: *"Veritas Navigator is not a law firm and does not provide legal advice. This is a navigation and document-organization tool."*
 - **Application logic** — Layer state machine, `completed_fields` vs `required_fields` check, payment gate, Yellow-tier pause, Shield conversion trigger.
+
+---
+
+## Shared Core Data Layer (Prisma)
+
+All data lives in Postgres via Prisma. The `VerificationEvent` table is the connective tissue — Navigator events and VROS field events write to the same table, linked by foreign key.
+
+```prisma
+model Case {
+  id          String     @id @default(cuid())
+  userId      String
+  caseType    CaseType
+  status      CaseStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  fieldJobs   FieldJob[]
+  events      VerificationEvent[]
+}
+
+enum CaseType {
+  FORECLOSURE
+  EVICTION
+  CUSTODY
+  CIVIL_DISPUTE
+  OTHER
+}
+
+enum CaseStatus {
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+model FieldJob {
+  id                   String      @id @default(cuid())
+  caseId               String?     // null = booked directly, not from a Navigator case
+  case                 Case?       @relation(fields: [caseId], references: [id])
+  serviceType          ServiceType
+  clientName           String
+  location             String
+  scheduledWindowStart DateTime?
+  scheduledWindowEnd   DateTime?
+  status               JobStatus   @default(SCHEDULED)
+  feeQuoted            Decimal?
+  feeCollected         Decimal?
+  createdAt            DateTime    @default(now())
+  events               VerificationEvent[]
+}
+
+enum ServiceType {
+  NOTARY
+  PROCESS_SERVICE
+  PROPERTY_INSPECTION
+  SPECIMEN_COURIER
+  OTHER
+}
+
+enum JobStatus {
+  SCHEDULED
+  EN_ROUTE
+  ON_SITE
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+model VerificationEvent {
+  id           String    @id @default(cuid())
+  caseId       String?
+  case         Case?     @relation(fields: [caseId], references: [id])
+  fieldJobId   String?
+  fieldJob     FieldJob? @relation(fields: [fieldJobId], references: [id])
+  actorId      String
+  roleType     String    // "litigant" | "notary" | "process_server" | "inspector"
+  eventType    String    // "document_drafted" | "arrival" | "photo_captured" | "affidavit_executed" ...
+  payloadType  String    // "document" | "property" | "specimen" | "case_note"
+  payloadRef   String?
+  timestamp    DateTime  @default(now())
+  geoLat       Float?
+  geoLng       Float?
+  evidenceUri  String?
+  notes        String?
+  priorEventId String?
+  evidenceHash String?   // SHA-256, computed at write time
+}
+```
+
+**Factual Packet export rule:** Pull all `VerificationEvent` rows where `caseId = X` — across both the Case's own events AND any FieldJob attached to it — ordered by `timestamp`, rendered to PDF. One query, one document, regardless of whether events came from a self-service drafting session or a field visit.
+
+**Reverse case (VROS → Navigator):** A `FieldJob` booked with no Case behind it can later be converted into a Case if the client wants ongoing documentation. Same tables, populated in the other order.
+
+---
+
+## Navigator Core Modules
+
+- **Case Intake** — caseType, basic facts, what outcome they're trying to reach. Maps to Layer 1/2/3 triage flow.
+- **Timeline Builder** — chronological event log the user builds themselves: uploads, notes, dates. Each entry is a `VerificationEvent` with `roleType: "litigant"`.
+- **AI Cross-Check Workflow** — *Not a hosted AI feature.* A guided template: "Draft this affidavit in [ChatGPT/Gemini/Claude free tier], then paste it into a second tool and ask it only to check for internal consistency — do the dates match, are names spelled the same way throughout, is anything referenced but missing?" Zero AI hosting cost. The workflow result is logged as events: `document_drafted` → `cross_check_pass` or `discrepancies_flagged` → `finalized`. The cross-check template explicitly forbids: generating legal arguments, citing case law, or recommending a course of action. Internal consistency only.
+- **Document Vault (Shield)** — stores uploaded evidence, hashed on intake (`evidenceHash` field).
+- **Factual Packet Export** — compiles the Case's full `VerificationEvent` history into a printable PDF. This is the paid $15 deliverable.
+- **"I need this served / notarized / documented" button** — the handoff trigger into VROS (see Handoff section).
+
+### Hard guardrails (build into UI copy, not just the privacy policy)
+- Every screen that touches drafting: *"This tool organizes your information. It does not tell you what to argue or whether your case is strong. For legal advice, consult an attorney."*
+- The AI Cross-Check template instructions explicitly forbid generating legal arguments, citing case law, or recommending a course of action.
+- No screen ever says "Veritas recommends" anything about strategy.
+
+---
+
+## VROS — Field Execution Engine
+
+**Audience:** people and entities inside the ~25-mile physical radius who need something done in person.
+**Job:** convert trust into a paid physical action, priced at real market rate, not software rate.
+
+### Job types
+- Mobile notary (including hospital/jail/care facility)
+- Process service
+- Property/asset inspection
+- Specimen courier (parallel track, once BAA/insurance paperwork is in place)
+
+### Field execution workflow
+1. **Booking** — name, address, service type, time window, billing method. Creates a `FieldJob` row.
+2. **En route / Arrival** — `VerificationEvent` with `eventType: "arrival"`, geo-stamped automatically.
+3. **On-site capture** — photos (exterior/interior/document/ID as relevant), notes. Each is a `VerificationEvent`.
+4. **Completion** — `eventType: "affidavit_executed"` or `"report_exported"`, payment collected.
+5. Every event writes to the same `VerificationEvent` table as Navigator. `fieldJobId` always set; `caseId` also set if this job originated from a Navigator handoff.
+
+### VROS pricing (anchored to real market rate, never flat software pricing)
+| Service | Price | Note |
+|---|---|---|
+| Mobile notary | $50–150/visit | Statutory per-signature fee is small; travel/convenience fee is uncapped |
+| Process service | Local market rate | Check current comps in your county |
+| Property inspection | $35–75/property direct | Verified market comp — avoid vendor networks, which pay $3–10 |
+| + Verification premium | +$15–25 on any of the above | The hash/GPS-stamp/Factual Packet layer — charged on top, never standing alone |
+
+### Route batching
+Group same-day jobs by geography before leaving the house. Manual is correct for now — there is only one field agent. Do not build automated standby rerouting until there is a second field agent to reroute to.
+
+---
+
+## The Handoff — Exact Mechanics
+
+**Trigger:** inside an active Navigator Case, the user taps "I need this served / notarized / documented."
+
+**What happens:**
+1. A `FieldJob` row is created with `caseId` set to the originating `Case.id`.
+2. The Case's existing data (names, address, document type, what's needed) pre-fills the booking — no re-collecting information, no cold call.
+3. The field rate is quoted (VROS pricing above) — this is a separate transaction from anything paid to Navigator, billed at field rates.
+4. On completion, the `FieldJob`'s `VerificationEvent`s are already linked back to the Case by foreign key — no extra step for them to appear in the next Factual Packet.
 
 ---
 
@@ -202,7 +355,7 @@ This brings the MVP category count to seven once the Utility Disconnection categ
 ## Referral Rules
 
 When a matter exceeds self-help navigation (active litigation with represented opposition, hearing underway, process service or notarization needed):
-- Refer to **Veritas Field Services** (operational arm) — state what the service does and how to reach it, not a sales pitch, no individual named.
+- Refer to **Veritas Field Services / VROS** (operational arm) — state what the service does and how to reach it, not a sales pitch, no individual named.
 - Refer to **Michigan State Bar Lawyer Referral Service and regional legal aid organizations** when the matter requires licensed counsel.
 - Never inflate the need for referral to generate a sale.
 
@@ -221,34 +374,38 @@ When a matter exceeds self-help navigation (active litigation with represented o
 
 | Product | Price | Trigger |
 |---------|-------|---------|
+| Free tier | $0 | Case intake, manual timeline, BYO AI cross-check template |
 | Veritas Shield | $4.99/month | Post-resolution conversion, or direct signup |
-| Timeline, Affidavit, and Exhibits packet | $15.00 flat, one-time | Charged at the Layer 3 → document gate; same price regardless of which components are needed |
-| Veritas Marketplace | ~15% fee | Field Services (notarization, process serving, filing) |
-| B2B Intake Room | $99/month per attorney | Seat-based; each attorney individually verified against bar records before subscription activates |
+| Factual Packet | $15.00 flat, one-time | Charged at the Layer 3 → document gate; same price regardless of which components are needed |
+| Professional License (B2B) | $99/month per attorney | Seat-based; each attorney individually verified against bar records before subscription activates |
+| VROS field services | Market rate + verification premium | Mobile notary $50–150; process service at local comps; property inspection $35–75; +$15–25 verification premium |
 
 The Navigator packet price is configurable via `NAVIGATOR_PACKET_PRICE` env var (currently 1500 cents = $15.00). Do not hardcode prices in UI copy — pull from env.
 
-**B2B Intake Room** may be built and exposed now, in dormant form — available for signup but not actively marketed or required for Housing & Eviction users. This does not block or delay the Housing & Eviction MVP. B2B Companion and Verified tiers remain post-MVP and undecided — this update does not authorize building those.
-
-This is an explicit founder override of the original "B2B post-MVP" restriction, made deliberately.
+**B2B Professional License** may be built and exposed now, in dormant form — available for signup but not actively marketed or required for Housing & Eviction users. Bar status must be verified against bar records before `subscription_status` can be set to `'active'`. Never activate a seat for an unverified attorney. B2B Companion and Verified tiers remain post-MVP and undecided.
 
 ---
 
 ## Tech Stack
 
-- **Framework:** Next.js (App Router or Pages — confirm from existing files)
-- **AI:** Anthropic API (`ANTHROPIC_API_KEY`) via `/api/chat` route
-- **Database:** Supabase — `navigator_cases` and `navigator_case_outcomes` tables (see Data Model above), plus `compliance_review_queue` for Yellow-tier items
-- **Payments:** Stripe Node.js SDK — one-time charge for Navigator packet, recurring subscription for Shield
+- **Framework:** Next.js 16 (App Router)
+- **AI:** Anthropic API (`ANTHROPIC_API_KEY`) via `/api/chat` route — the main triage AI
+- **AI Cross-Check:** BYO — users use their own ChatGPT/Gemini/Claude free tier; zero AI hosting cost for this feature
+- **ORM:** Prisma (`prisma/schema.prisma`) against Postgres
+- **Database:** Supabase Postgres (or any Postgres) — `navigator_cases`, `navigator_case_outcomes`, `compliance_review_queue`, `b2b_attorneys` tables (Supabase-managed); plus `Case`, `FieldJob`, `VerificationEvent` via Prisma for the unified event ledger
+- **Payments:** Stripe Node.js SDK — one-time charge for Factual Packet, recurring subscription for Shield, seat-based for B2B
 
-### Key Supabase Tables
+### Key Database Tables
 
-| Table | Purpose |
+| Table / Model | Purpose |
 |-------|---------|
 | `navigator_cases` | One row per dispute; tracks `current_layer`, `completed_fields`, `classification_log`, payment/document status, Shield conversion fields |
 | `navigator_case_outcomes` | Outcome intelligence populated at 30/60/90 days post-resolution |
 | `compliance_review_queue` | Yellow-tier responses pending human review; status: `'pending'` → `'cleared'` |
-| `b2b_attorneys` | B2B Intake Room — attorney identity, bar verification status, and subscription state |
+| `b2b_attorneys` | B2B Professional License — attorney identity, bar verification status, subscription state |
+| `Case` (Prisma) | Root record linking Navigator triage data to VROS field jobs |
+| `FieldJob` (Prisma) | One row per physical field visit; linked to Case or standalone |
+| `VerificationEvent` (Prisma) | Immutable event log shared by Navigator and VROS; hashed evidence chain |
 
 **`b2b_attorneys` schema:**
 ```
@@ -264,7 +421,23 @@ created_at            timestamp
 Bar status must be verified against bar records before `subscription_status` can be set to `'active'`. Never activate a seat for an unverified attorney.
 
 ### System Prompt Location
-The AI system prompt (Parts A, B, C of the governance document — Truth Mode, GPS Standard, disclosure, triage questions, referral rules) must be stored as a **separate constant or config file**, not hardcoded inline in the `/api/chat` route handler.
+The AI system prompt must be stored in `lib/system-prompt.ts`, not hardcoded inline in the `/api/chat` route handler.
+
+---
+
+## Build Sequencing
+
+### Now (manual-friendly, ships fast)
+- `Case`, `FieldJob`, `VerificationEvent` tables via Prisma migration.
+- Factual Packet export as a PDF render of one Case's `VerificationEvent`s, in timestamp order.
+- The handoff button — even if it just creates a `FieldJob` row and texts the founder, ship it.
+
+### Once there are 10+ real Cases and 10+ real FieldJobs
+- Dashboard view of jobs by status (paid/unpaid, scheduled/completed).
+- Route batching suggestions based on `FieldJob` locations for a given day.
+
+### Only once there is a second field agent
+- Automated SMS dispatch, standby rerouting, full Grace Protocol automation. Not before — there is nothing to reroute to yet. Do not build this early.
 
 ---
 
@@ -272,12 +445,19 @@ The AI system prompt (Parts A, B, C of the governance document — Truth Mode, G
 
 ```
 ANTHROPIC_API_KEY
+
+# Postgres / Supabase
+DATABASE_URL                       # Postgres connection string for Prisma
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
+
+# Stripe
 STRIPE_SECRET_KEY
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-NAVIGATOR_PACKET_PRICE=1500        # $15.00 flat — Timeline, Affidavit, and Exhibits packet
+
+# Pricing (in cents)
+NAVIGATOR_PACKET_PRICE=1500        # $15.00 flat — Factual Packet
 SHIELD_PRICE=499                   # $4.99/month — Veritas Shield recurring
 B2B_SEAT_PRICE=9900                # $99.00/month per verified attorney seat
 ```

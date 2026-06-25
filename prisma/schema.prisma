@@ -1,0 +1,112 @@
+// Veritas Navigator + VROS — Shared Event Ledger
+// All user-facing statutory deadlines must come from lib/jurisdiction-clocks.ts,
+// not from model inference or hardcoded values anywhere in this schema.
+//
+// To apply migrations: npx prisma migrate dev --name <description>
+// To push schema to an existing DB without migrations: npx prisma db push
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Navigator Case ───────────────────────────────────────────────────────────
+// Root record linking Navigator triage data to VROS field jobs.
+// One row per legal dispute. Connects to the VerificationEvent chain.
+
+model Case {
+  id        String     @id @default(cuid())
+  userId    String
+  caseType  CaseType
+  status    CaseStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  fieldJobs FieldJob[]
+  events    VerificationEvent[]
+}
+
+enum CaseType {
+  FORECLOSURE
+  EVICTION
+  CUSTODY
+  CIVIL_DISPUTE
+  OTHER
+}
+
+enum CaseStatus {
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+// ─── VROS Field Job ───────────────────────────────────────────────────────────
+// One row per physical field visit (notary, process service, inspection, courier).
+// caseId is nullable — a FieldJob may be booked directly without a Navigator case.
+// When caseId is set, the job originated from a Navigator handoff.
+
+model FieldJob {
+  id                   String      @id @default(cuid())
+  caseId               String?
+  case                 Case?       @relation(fields: [caseId], references: [id])
+  serviceType          ServiceType
+  clientName           String
+  location             String
+  scheduledWindowStart DateTime?
+  scheduledWindowEnd   DateTime?
+  status               JobStatus   @default(SCHEDULED)
+  feeQuoted            Decimal?
+  feeCollected         Decimal?
+  createdAt            DateTime    @default(now())
+
+  events VerificationEvent[]
+}
+
+enum ServiceType {
+  NOTARY
+  PROCESS_SERVICE
+  PROPERTY_INSPECTION
+  SPECIMEN_COURIER
+  OTHER
+}
+
+enum JobStatus {
+  SCHEDULED
+  EN_ROUTE
+  ON_SITE
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+// ─── Verification Event ───────────────────────────────────────────────────────
+// Immutable event log shared by Navigator and VROS.
+// Navigator writes: document_drafted, cross_check_pass, discrepancies_flagged, finalized
+// VROS writes: arrival, photo_captured, affidavit_executed, report_exported
+//
+// evidenceHash is SHA-256, computed at write time and never updated.
+// Factual Packet export = all events for a caseId, ordered by timestamp, rendered to PDF.
+
+model VerificationEvent {
+  id           String    @id @default(cuid())
+  caseId       String?
+  case         Case?     @relation(fields: [caseId], references: [id])
+  fieldJobId   String?
+  fieldJob     FieldJob? @relation(fields: [fieldJobId], references: [id])
+  actorId      String
+  roleType     String    // "litigant" | "notary" | "process_server" | "inspector"
+  eventType    String    // "document_drafted" | "arrival" | "photo_captured" | "affidavit_executed" ...
+  payloadType  String    // "document" | "property" | "specimen" | "case_note"
+  payloadRef   String?
+  timestamp    DateTime  @default(now())
+  geoLat       Float?
+  geoLng       Float?
+  evidenceUri  String?
+  notes        String?
+  priorEventId String?
+  evidenceHash String?
+}
