@@ -1,9 +1,6 @@
-// Veritas Navigator + VROS — Shared Event Ledger
-// All user-facing statutory deadlines must come from lib/jurisdiction-clocks.ts,
-// not from model inference or hardcoded values anywhere in this schema.
-//
-// To apply migrations: npx prisma migrate dev --name <description>
-// To push schema to an existing DB without migrations: npx prisma db push
+// Veritas / STAND — Shared Event Ledger (Prisma 7)
+// Connection URL is in prisma.config.ts (Prisma 7 requirement).
+// To apply schema to Supabase: see supabase-migration.sql in the prisma/ directory.
 
 generator client {
   provider = "prisma-client-js"
@@ -11,12 +8,9 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
-// ─── Navigator Case ───────────────────────────────────────────────────────────
-// Root record linking Navigator triage data to VROS field jobs.
-// One row per legal dispute. Connects to the VerificationEvent chain.
+// ─── Case ─────────────────────────────────────────────────────────────────────
 
 model Case {
   id        String     @id @default(cuid())
@@ -44,10 +38,8 @@ enum CaseStatus {
   ARCHIVED
 }
 
-// ─── VROS Field Job ───────────────────────────────────────────────────────────
-// One row per physical field visit (notary, process service, inspection, courier).
-// caseId is nullable — a FieldJob may be booked directly without a Navigator case.
-// When caseId is set, the job originated from a Navigator handoff.
+// ─── FieldJob ─────────────────────────────────────────────────────────────────
+// One row per physical field visit. caseId null = standalone VROS booking.
 
 model FieldJob {
   id                   String      @id @default(cuid())
@@ -83,30 +75,100 @@ enum JobStatus {
   CANCELLED
 }
 
-// ─── Verification Event ───────────────────────────────────────────────────────
-// Immutable event log shared by Navigator and VROS.
-// Navigator writes: document_drafted, cross_check_pass, discrepancies_flagged, finalized
-// VROS writes: arrival, photo_captured, affidavit_executed, report_exported
-//
-// evidenceHash is SHA-256, computed at write time and never updated.
-// Factual Packet export = all events for a caseId, ordered by timestamp, rendered to PDF.
+// ─── VerificationEvent ────────────────────────────────────────────────────────
+// Immutable event log shared by STAND triage and VROS field visits.
+// evidenceHash is SHA-256 computed at write time, never updated.
+// Factual Packet = all events for a caseId ordered by timestamp, rendered to PDF.
 
 model VerificationEvent {
-  id           String    @id @default(cuid())
+  id           String      @id @default(cuid())
   caseId       String?
-  case         Case?     @relation(fields: [caseId], references: [id])
+  case         Case?       @relation(fields: [caseId], references: [id])
   fieldJobId   String?
-  fieldJob     FieldJob? @relation(fields: [fieldJobId], references: [id])
+  fieldJob     FieldJob?   @relation(fields: [fieldJobId], references: [id])
   actorId      String
-  roleType     String    // "litigant" | "notary" | "process_server" | "inspector"
-  eventType    String    // "document_drafted" | "arrival" | "photo_captured" | "affidavit_executed" ...
-  payloadType  String    // "document" | "property" | "specimen" | "case_note"
+  roleType     String      // "litigant" | "notary" | "process_server" | "inspector"
+  eventType    EventType
+  payloadType  String      // "document" | "property" | "specimen" | "case_note"
   payloadRef   String?
-  timestamp    DateTime  @default(now())
+  timestamp    DateTime    @default(now())
   geoLat       Float?
   geoLng       Float?
   evidenceUri  String?
   notes        String?
   priorEventId String?
   evidenceHash String?
+
+  // source_retrieved — structured source fields (null for other event types)
+  sourceUrl        String?
+  sourceTitle      String?
+  sourceTextHash   String?
+  verifiedDate     DateTime?
+
+  // result_displayed — structured verification result (null for other event types)
+  verificationStatus VerificationStatus?
+
+  // Evidence-grammar tag: how this event's user-facing text was produced
+  origin ContentOrigin?
+}
+
+enum EventType {
+  // STAND Verification Check flow
+  claim_logged
+  source_retrieved
+  source_not_found
+  consistency_checked
+  result_displayed
+  affidavit_drafted
+  form_check_run
+  exhibit_cross_referenced
+  finalized
+  // BYO AI Cross-Check flow
+  document_drafted
+  cross_check_pass
+  discrepancies_flagged
+  // VROS field events
+  arrival
+  photo_captured
+  affidavit_executed
+  report_exported
+}
+
+enum VerificationStatus {
+  match
+  mismatch
+  cannot_verify
+}
+
+// Evidence-grammar tag: source of user-facing text — required by UPL disclosure standard §8.
+// Every AI-touched output must be visibly labeled in the UI when origin = ai_suggested_rewrite.
+enum ContentOrigin {
+  user_entered
+  system_derived
+  ai_suggested_rewrite
+}
+
+// ─── RuleSource ───────────────────────────────────────────────────────────────
+// Bounded universe of verified statutory text the Verification Check may compare against.
+// The AI is never allowed to compare against open-web text or its own training data —
+// only against rows in this table where lastVerifiedDate is within staleAfterDays.
+
+model RuleSource {
+  id               String   @id @default(cuid())
+  jurisdiction     String   // "michigan" | "federal" | "wayne_county" ...
+  topic            String   // "eviction notice period" | "foia response window" ...
+  sourceType       RuleSourceType
+  exactText        String   // verbatim statutory text — no paraphrase, no summary
+  sourceUrl        String
+  lastVerifiedDate DateTime
+  staleAfterDays   Int      @default(45)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+enum RuleSourceType {
+  statute
+  court_rule
+  official_form
+  administrative_rule
 }
