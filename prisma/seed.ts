@@ -11,6 +11,7 @@ async function main() {
   await prisma.ruleSource.createMany({
     skipDuplicates: true,
     data: [
+      // ── Housing & Eviction ──────────────────────────────────────────────────
       {
         id: 'seed-001',
         jurisdiction: 'michigan',
@@ -33,6 +34,7 @@ async function main() {
         lastVerifiedDate: new Date('2026-06-01'),
         staleAfterDays: 45,
       },
+      // ── FOIA ──────────────────────────────────────────────────────────────
       {
         id: 'seed-003',
         jurisdiction: 'michigan',
@@ -66,6 +68,7 @@ async function main() {
         lastVerifiedDate: new Date('2026-06-01'),
         staleAfterDays: 45,
       },
+      // ── Debt Collection ────────────────────────────────────────────────────
       {
         id: 'seed-006',
         jurisdiction: 'federal',
@@ -77,6 +80,7 @@ async function main() {
         lastVerifiedDate: new Date('2026-06-01'),
         staleAfterDays: 45,
       },
+      // ── Other Civil ────────────────────────────────────────────────────────
       {
         id: 'seed-007',
         jurisdiction: 'michigan',
@@ -122,10 +126,101 @@ async function main() {
         lastVerifiedDate: new Date('2026-06-01'),
         staleAfterDays: 45,
       },
+      // ── Business Formation (Section 5B) ────────────────────────────────────
+      {
+        id: 'seed-011',
+        jurisdiction: 'federal',
+        topic: 'business formation ein employer identification number',
+        sourceType: 'statute',
+        exactText:
+          'An Employer Identification Number (EIN) is a unique nine-digit number assigned by the IRS to identify business entities for federal tax purposes. EINs are issued free of charge by the Internal Revenue Service. Online applications completed at IRS.gov are processed immediately — an EIN is issued during the same online session. The application is available to businesses whose principal place of business is in the United States or a U.S. Territory. There is no fee to apply for or receive an EIN.',
+        sourceUrl: 'https://www.irs.gov/businesses/small-businesses-self-employed/apply-for-an-employer-identification-number-ein-online',
+        lastVerifiedDate: new Date('2026-07-01'),
+        staleAfterDays: 45,
+      },
+      {
+        id: 'seed-012',
+        jurisdiction: 'michigan',
+        topic: 'michigan llc entity registration lara articles of organization',
+        sourceType: 'statute',
+        exactText:
+          "To form a Michigan Limited Liability Company, Articles of Organization must be filed with the Michigan Department of Licensing and Regulatory Affairs (LARA), Corporations, Securities & Commercial Licensing Bureau (CSCL). The current state filing fee for LLC Articles of Organization is $50.00, paid directly to LARA — this is a government fee separate from any service fee. The Articles of Organization form (CSCL/CD-700) is available on the LARA website. A Michigan LLC comes into existence upon the effective date stated in the Articles of Organization or, if no date is stated, upon LARA's filing of the document.",
+        sourceUrl: 'https://www.michigan.gov/lara/bureau-list/bcs/corps/forms',
+        lastVerifiedDate: new Date('2026-07-01'),
+        staleAfterDays: 45,
+      },
+      {
+        id: 'seed-013',
+        jurisdiction: 'federal',
+        topic: 'uei unique entity identifier sam.gov federal contracts grants',
+        sourceType: 'administrative_rule',
+        exactText:
+          'Effective April 4, 2022, the federal government replaced the DUNS Number with the Unique Entity Identifier (UEI) for all SAM.gov registrations, federal contracts, federal grants, and cooperative agreements. The UEI is a 12-character alphanumeric identifier created in SAM.gov. Registration in SAM.gov and obtaining a UEI is free of charge. The UEI is required only for entities seeking federal contracts, federal grants, or other federal financial assistance. It is not required for general business formation, state-level licensing, or commercial trade credit. The UEI does not replace the DUNS Number for D&B credit file purposes — those are two separate systems serving different purposes.',
+        sourceUrl: 'https://sam.gov/content/duns-migration',
+        lastVerifiedDate: new Date('2026-07-01'),
+        staleAfterDays: 45,
+      },
+      {
+        id: 'seed-014',
+        jurisdiction: 'federal',
+        topic: 'duns number dun bradstreet trade credit business identity',
+        sourceType: 'administrative_rule',
+        exactText:
+          "A DUNS (Data Universal Numbering System) Number is a unique nine-digit identifier issued by Dun & Bradstreet (D&B) for business entities. The DUNS Number is free to obtain directly from D&B at dnb.com. The DUNS Number is not deprecated and has not been replaced by the federal UEI — they are two separate identifiers serving different purposes. The DUNS Number anchors a business's D&B credit file and PAYDEX score, which is relevant for vendor trade credit (net-30/net-60 accounts), business loan applications, and requirements set by specific large vendors or partners. PAYDEX development requires at minimum 3 reported trade payment experiences and typically 6 to 12 months of payment history to build meaningfully. D&B offers paid Credit Insights products layered on top of the free DUNS number; the DUNS Number itself costs nothing.",
+        sourceUrl: 'https://www.dnb.com/duns-number.html',
+        lastVerifiedDate: new Date('2026-07-01'),
+        staleAfterDays: 45,
+      },
+      {
+        id: 'seed-015',
+        jurisdiction: 'michigan',
+        topic: 'michigan sales use tax registration michigan treasury online mto',
+        sourceType: 'administrative_rule',
+        exactText:
+          'A Michigan Sales Tax License is required for any business that sells taxable tangible personal property or taxable services in Michigan. Registration is completed through Michigan Treasury Online (MTO) at www.michigan.gov/taxes. Registration for a sales tax license is free of charge. A separate license is required per business location. The use tax registration is combined in the same MTO application. Registration must be completed before the first taxable sale is made.',
+        sourceUrl: 'https://www.michigan.gov/taxes/sales-use/registration',
+        lastVerifiedDate: new Date('2026-07-01'),
+        staleAfterDays: 45,
+      },
+      {
+        id: 'seed-016',
+        jurisdiction: 'michigan',
+        topic: 'certificate of assumed name dba michigan llc sole proprietor',
+        sourceType: 'statute',
+        exactText:
+          'A Michigan limited liability company or corporation that conducts business under a name other than its legal name must file a Certificate of Assumed Name (form CSCL/CD-4541) with the Michigan Department of Licensing and Regulatory Affairs. Sole proprietorships and general partnerships operating under an assumed name in Michigan must file an assumed name certificate with the county clerk in the county where the business is principally conducted. The appropriate filing location depends on the entity type — confirm entity type before selecting the filing path, as LLC/corporation filers use LARA and sole proprietorship/partnership filers use the county clerk.',
+        sourceUrl: 'https://www.michigan.gov/lara/bureau-list/bcs/corps/assumed-name',
+        lastVerifiedDate: new Date('2026-07-01'),
+        staleAfterDays: 45,
+      },
+      {
+        id: 'seed-017',
+        jurisdiction: 'michigan',
+        topic: 'michigan uia unemployment insurance agency employer registration employees',
+        sourceType: 'statute',
+        exactText:
+          'A Michigan employer is required to register with the Michigan Unemployment Insurance Agency (UIA) when: (1) the employer has paid wages of $1,000 or more in any calendar quarter in the current or preceding calendar year; or (2) the employer has employed one or more individuals in 20 or more different calendar weeks in the current or preceding calendar year. A single-member LLC with no employees is generally not required to register. Registration is completed through MiWAM (Michigan Web Account Manager) at www.michigan.gov/uia.',
+        sourceUrl: 'https://www.michigan.gov/uia/employers/new-employer-resources',
+        lastVerifiedDate: new Date('2026-07-01'),
+        staleAfterDays: 45,
+      },
+      {
+        // ⚠️  HIGH VOLATILITY — staleAfterDays: 30 (monthly recheck)
+        // This status has changed multiple times since 2024.
+        id: 'seed-018',
+        jurisdiction: 'federal',
+        topic: 'beneficial ownership information boi fincen corporate transparency act domestic exemption',
+        sourceType: 'statute',
+        exactText:
+          "Under the Corporate Transparency Act (31 U.S.C. § 5336) and FinCEN's implementing regulations, an interim final rule effective March 21, 2025 exempts domestic entities — including domestic corporations, LLCs, and other entities created by filing with a U.S. state or tribal government — from Beneficial Ownership Information (BOI) reporting requirements. As of this entry's verified date, only foreign entities registering to do business in the United States are required to file BOI reports with FinCEN. IMPORTANT: This exemption has changed multiple times since 2024. A final FinCEN rulemaking is expected in 2026 that could reinstate the domestic filing requirement with little advance notice. Domestic entities should monitor FinCEN.gov for any changes. This entry is rechecked monthly due to high regulatory volatility.",
+        sourceUrl: 'https://www.fincen.gov/boi',
+        lastVerifiedDate: new Date('2026-07-01'),
+        staleAfterDays: 30,
+      },
     ],
   });
 
-  console.log('RuleSource seed complete — 10 Michigan entries inserted.');
+  console.log('RuleSource seed complete — 18 entries (10 litigation + 8 business formation).');
 }
 
 main()

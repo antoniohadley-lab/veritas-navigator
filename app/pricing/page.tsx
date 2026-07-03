@@ -2,11 +2,11 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Plans — STAND',
-  description: 'Case Floor, Standing Room, Factual Packet, and Intake Docket pricing.',
+  description: 'Case Floor, Standing Room, Factual Packet, Intake Docket, and Launch Floor pricing.',
 };
 
-// Prices are sourced from env in server components; do not hardcode in copy.
-// These are the locked values — do not change without founder confirmation.
+// All prices sourced from env — never hardcode in copy.
+// Locked per STAND Build Brief. Do not change without founder confirmation.
 const STANDING_ROOM_MONTHLY = process.env.STANDING_ROOM_PRICE
   ? (parseInt(process.env.STANDING_ROOM_PRICE) / 100).toFixed(2)
   : '9.99';
@@ -19,12 +19,16 @@ const INTAKE_DOCKET_MONTHLY = process.env.INTAKE_DOCKET_PRICE
   ? (parseInt(process.env.INTAKE_DOCKET_PRICE) / 100).toFixed(2)
   : '99.00';
 
+const LAUNCH_FLOOR = process.env.LAUNCH_FLOOR_PRICE
+  ? (parseInt(process.env.LAUNCH_FLOOR_PRICE) / 100).toFixed(2)
+  : '15.00';
+
 export default function PricingPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-veritas-blue text-white px-6 py-4 shadow-md">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div>
             <a href="/start" className="text-xl font-semibold tracking-tight hover:opacity-90">
               STAND
@@ -44,19 +48,20 @@ export default function PricingPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-16">
+      <main className="max-w-6xl mx-auto px-4 py-16">
         {/* Headline */}
         <div className="text-center mb-14">
-          <h2 className="text-3xl font-bold text-gray-900 tracking-tight">
-            Plans
-          </h2>
+          <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Plans</h2>
           <p className="mt-3 text-gray-500 text-sm max-w-xl mx-auto">
             They&apos;re not smarter than you. They&apos;re just organized.
           </p>
         </div>
 
-        {/* Tier grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* ── Disputes & litigation tiers ── */}
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
+          Disputes &amp; Litigation
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
           {/* Case Floor — Free */}
           <TierCard
             name="Case Floor"
@@ -101,7 +106,7 @@ export default function PricingPage() {
               'Timeline + affidavit + exhibits',
               'Hash-verified PDF',
               'Court-ready formatting',
-              'No itemized breakdown — flat rate',
+              'Flat rate — no itemized breakdown',
             ]}
             cta="Get Factual Packet"
             ctaHref="/start"
@@ -125,11 +130,34 @@ export default function PricingPage() {
           />
         </div>
 
+        {/* ── Business formation tier ── */}
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
+          Business Formation
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
+          <TierCard
+            name="Launch Floor"
+            price={`$${LAUNCH_FLOOR}`}
+            priceNote="one-time walkthrough"
+            highlight={false}
+            features={[
+              'EIN registration (IRS — free)',
+              'State entity registration guide',
+              'UEI vs. DUNS — which applies',
+              'Sales/use tax, DBA, UIA steps',
+              'BOI status (rechecked monthly)',
+            ]}
+            cta="Launch your business"
+            ctaHref="/start"
+            note={`Government filing fees (e.g. Michigan LLC: $50 to LARA) are paid directly to the state — separate from the $${LAUNCH_FLOOR} STAND walkthrough fee.`}
+          />
+        </div>
+
         {/* Legal disclaimer */}
-        <p className="mt-16 text-center text-xs text-gray-400 max-w-2xl mx-auto leading-relaxed">
-          STAND is not a law firm and does not provide legal advice. All tiers
-          are organization and verification tools. For legal representation,
-          consult a licensed Michigan attorney or contact{' '}
+        <p className="mt-4 text-center text-xs text-gray-400 max-w-2xl mx-auto leading-relaxed">
+          STAND is not a law firm and does not provide legal advice. All tiers are organization
+          and verification tools. For legal representation, consult a licensed Michigan attorney
+          or contact{' '}
           <a
             href="https://michiganlegalhelp.org"
             className="underline hover:text-gray-600"
@@ -153,6 +181,7 @@ interface TierCardProps {
   features: string[];
   cta: string;
   ctaHref: string;
+  note?: string;
 }
 
 function TierCard({
@@ -163,6 +192,7 @@ function TierCard({
   features,
   cta,
   ctaHref,
+  note,
 }: TierCardProps) {
   return (
     <div
@@ -186,16 +216,20 @@ function TierCard({
         <p className="text-xs text-gray-400 mt-0.5">{priceNote}</p>
       </div>
 
-      <ul className="space-y-2 flex-1 mb-8">
+      <ul className="space-y-2 flex-1 mb-6">
         {features.map((f) => (
           <li key={f} className="flex items-start gap-2 text-sm text-gray-600">
-            <span className="text-veritas-teal mt-0.5 font-bold text-xs flex-shrink-0">
-              ✓
-            </span>
+            <span className="text-veritas-teal mt-0.5 font-bold text-xs flex-shrink-0">✓</span>
             {f}
           </li>
         ))}
       </ul>
+
+      {note && (
+        <p className="text-xs text-gray-400 mb-4 leading-relaxed border-t border-gray-100 pt-3">
+          {note}
+        </p>
+      )}
 
       <a
         href={ctaHref}

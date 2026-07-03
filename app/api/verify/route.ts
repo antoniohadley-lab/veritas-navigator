@@ -35,6 +35,17 @@ const OPPONENT_TOPICS: Record<string, string[]> = {
   'Debt collector / creditor': [
     'fdcpa debt validation window',
   ],
+  // Business formation (Launch Floor) — topics queried by dedicated UI, not opponent type
+  'Government agency / licensing body': [
+    'business formation ein employer identification number',
+    'michigan llc entity registration lara articles of organization',
+    'uei unique entity identifier sam.gov federal contracts grants',
+    'duns number dun bradstreet trade credit business identity',
+    'michigan sales use tax registration michigan treasury online mto',
+    'certificate of assumed name dba michigan llc sole proprietor',
+    'michigan uia unemployment insurance agency employer registration employees',
+    'beneficial ownership information boi fincen corporate transparency act domestic exemption',
+  ],
   'Employer': [],
   'Police / criminal court': [],
   'Other': [],
