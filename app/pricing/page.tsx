@@ -37,7 +37,13 @@ export default function PricingPage() {
               by Veritas Systems &amp; Technologies LLC
             </p>
           </div>
-          <nav>
+          <nav className="flex items-center gap-5">
+            <a
+              href="/about"
+              className="text-sm text-blue-200 hover:text-white transition-colors"
+            >
+              How it works
+            </a>
             <a
               href="/start"
               className="text-sm text-blue-200 hover:text-white transition-colors"

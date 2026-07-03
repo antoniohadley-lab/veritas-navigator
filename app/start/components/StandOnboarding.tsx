@@ -116,6 +116,9 @@ export default function StandOnboarding() {
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <a href="/about" style={{ color: '#475569', fontSize: 12.5, textDecoration: 'none' }}>
+            How it works
+          </a>
           <a href="/pricing" style={{ color: '#475569', fontSize: 12.5, textDecoration: 'none' }}>
             Pricing
           </a>
