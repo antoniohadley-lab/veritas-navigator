@@ -64,6 +64,25 @@ export default function AboutPage() {
           into a structured record you control.
         </p>
 
+        {/* Founder origin — "not as marketing, as fact" (Master Bible §1) */}
+        <p style={{ fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: STEEL, marginBottom: '1.25rem' }}>
+          Why this exists
+        </p>
+        <div style={{ backgroundColor: NAVY_SURFACE, border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', padding: '1.75rem', marginBottom: '3rem' }}>
+          <p style={{ fontSize: '1.0625rem', color: '#E2E8F0', lineHeight: 1.75, margin: 0 }}>
+            The founder of this company was served with foreclosure papers he claims he never
+            received — and had no way to prove it. Then it happened again in a separate matter.
+            Twice, the legal system moved against him through a process he could not verify or
+            disprove. He didn&rsquo;t build a verification company because he thought it was a good
+            business. He built it because he learned firsthand what it costs when proof doesn&rsquo;t
+            exist.
+          </p>
+          <p style={{ fontSize: '1.0625rem', color: '#E2E8F0', lineHeight: 1.75, marginTop: '1.25rem', marginBottom: 0 }}>
+            Every person STAND and VROS serves has that same vulnerability. That&rsquo;s not a
+            backstory — it&rsquo;s the thesis.
+          </p>
+        </div>
+
         {/* How it works — six steps */}
         <p style={{ fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: STEEL, marginBottom: '1.25rem' }}>
           How a Verification Check works
