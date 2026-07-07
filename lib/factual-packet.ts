@@ -62,12 +62,16 @@ export interface PacketCoverPage {
   };
   /** Ordered exhibit index */
   exhibits: ExhibitEntry[];
-  /** Attribution line — goes on the cover, never on filed pages */
-  attribution: string;
-  /** Professional review room offer — for institutional recipients */
-  intakeDocketReferral: {
-    text: string;
-    url: string;
+  /**
+   * Document Gravity footer — verbatim from Master Bible §3.
+   * Goes on the cover/transmittal page ONLY — never embedded in filed affidavit
+   * or exhibit pages (court formatting rules reject non-standard headers/footers).
+   */
+  documentGravityFooter: {
+    forensicId: string;          // "[STAND FORENSIC ID: #ST-{caseId}]"
+    verificationLine: string;    // "Verification Status: {status} | Data Grammar: Sourced/Cross-Linked"
+    attribution: string;         // the locked paragraph from Bible §3
+    intakeDocketUrl: string;
   };
 }
 
@@ -96,6 +100,14 @@ export function buildFactualPacket(
   const cannotVerifyCount = events.filter((e) => e.verificationStatus === 'cannot_verify').length;
   const hasAiSuggestedContent = events.some((e) => e.origin === 'ai_suggested_rewrite');
 
+  // Derive human-readable verification status for the footer line
+  const verificationStatusLabel =
+    mismatchCount > 0
+      ? 'Contradicted by source'
+      : matchCount > 0
+      ? 'Confirmed by source'
+      : 'Unverified';
+
   const coverPage: PacketCoverPage = {
     packetId,
     caseId,
@@ -108,15 +120,14 @@ export function buildFactualPacket(
       hasAiSuggestedContent,
     },
     exhibits,
-    // Attribution line — on cover page only, never embedded in filed documents
-    attribution:
-      'Prepared through STAND. Timeline, exhibits, and verification history available in structured review format.',
-    intakeDocketReferral: {
-      // For institutional recipients (attorneys, clerks, nonprofit intake staff) —
-      // not a pitch to opposing parties. Target: whoever processes many messy packets
-      // and might want a cleaner intake format.
-      text: 'Professional review room available — Intake Docket provides structured digital access to this packet for attorneys, court staff, and nonprofit intake organizations.',
-      url: `${baseUrl}/intake`,
+    // Document Gravity footer — verbatim from Master Bible §3.
+    // On cover/transmittal page ONLY — never on filed affidavit or exhibit pages.
+    documentGravityFooter: {
+      forensicId: `[STAND FORENSIC ID: #ST-${caseId.toUpperCase()}]`,
+      verificationLine: `Verification Status: ${verificationStatusLabel} | Data Grammar: Sourced/Cross-Linked`,
+      attribution:
+        'This document was structured through STAND. Every chronological entry is anchored to verified physical exhibits or hand-curated statutory rules (MCL/MCR). To review the live ledger or access the digital intake room for this file, visit [domain]/start.',
+      intakeDocketUrl: `${baseUrl}/start`,
     },
   };
 
@@ -136,6 +147,7 @@ export function renderCoverPageText(cover: PacketCoverPage): string {
     minute: '2-digit',
   });
 
+  const footer = cover.documentGravityFooter;
   const lines = [
     '═══════════════════════════════════════════════════',
     'STAND — FACTUAL PACKET',
@@ -145,10 +157,10 @@ export function renderCoverPageText(cover: PacketCoverPage): string {
     '',
     'VERIFICATION STATUS SUMMARY',
     `  Total events:       ${cover.verificationSummary.totalEvents}`,
-    `  Confirmed match:    ${cover.verificationSummary.matchCount}`,
-    `  Mismatch:           ${cover.verificationSummary.mismatchCount}`,
-    `  Cannot verify:      ${cover.verificationSummary.cannotVerifyCount}`,
-    `  AI-assisted:        ${cover.verificationSummary.hasAiSuggestedContent ? 'Yes — see AI-suggested rewrite labels in the event log' : 'No'}`,
+    `  Confirmed by source:   ${cover.verificationSummary.matchCount}`,
+    `  Contradicted by source: ${cover.verificationSummary.mismatchCount}`,
+    `  Unverified:           ${cover.verificationSummary.cannotVerifyCount}`,
+    `  AI-assisted content:  ${cover.verificationSummary.hasAiSuggestedContent ? 'Yes — see AI-suggested rewrite labels in the event log' : 'No'}`,
     '',
     'EXHIBIT INDEX',
     ...cover.exhibits.map(
@@ -157,10 +169,11 @@ export function renderCoverPageText(cover: PacketCoverPage): string {
     ),
     '',
     '───────────────────────────────────────────────────',
-    cover.attribution,
-    '',
-    cover.intakeDocketReferral.text,
-    cover.intakeDocketReferral.url,
+    // Document Gravity footer — verbatim from Master Bible §3
+    footer.forensicId,
+    footer.verificationLine,
+    footer.attribution,
+    footer.intakeDocketUrl,
     '───────────────────────────────────────────────────',
     '',
     'STAND is not a law firm and does not provide legal advice.',

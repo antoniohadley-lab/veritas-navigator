@@ -810,21 +810,23 @@ function Screen3({
 
 // ── Screen 4 — Verification result (evidence-grammar §8) ─────────────────────
 
+// Labels are the Master Bible §8 evidence grammar verbatim:
+// "Confirmed by source" / "Contradicted by source" / "Unverified"
 const STATUS_META = {
   match: {
-    label: 'MATCH',
+    label: 'Confirmed by source',
     pill: 'rgba(34,197,94,0.15)',
     pillText: '#22C55E',
     desc: 'The claim is consistent with the verified statute.',
   },
   mismatch: {
-    label: 'MISMATCH',
+    label: 'Contradicted by source',
     pill: 'rgba(248,113,113,0.15)',
     pillText: '#F87171',
     desc: 'The claim does not match the verified statute.',
   },
   cannot_verify: {
-    label: 'CANNOT VERIFY',
+    label: 'Unverified',
     pill: 'rgba(148,163,184,0.12)',
     pillText: '#94A3B8',
     desc: null, // filled dynamically

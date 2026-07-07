@@ -162,6 +162,9 @@ model RuleSource {
   exactText        String   // verbatim statutory text — no paraphrase, no summary
   sourceUrl        String
   lastVerifiedDate DateTime
+  // Signed verification log — per Bible §5: "Last verified by [initials], [date], confirmed against [URL]"
+  // A timestamp alone is not the same claim as a signed log that holds up under institutional audit.
+  verifiedBy       String?
   staleAfterDays   Int      @default(45)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
