@@ -272,16 +272,24 @@ ON CONFLICT ("id") DO NOTHING;
 -- NarrativeEntry, IssueTrack, Actor, TimelineEvent, Claim, Document, Output
 -- Run this block after the tables above exist.
 
-CREATE TYPE "IssueStatus" AS ENUM ('OPEN', 'RESOLVED', 'ESCALATED', 'CLOSED');
+CREATE TYPE "ExtractionStatus" AS ENUM ('PENDING', 'PROCESSED', 'FLAGGED');
+CREATE TYPE "TrackType" AS ENUM (
+  'HOUSING', 'SECURITY_DEPOSIT', 'FORECLOSURE', 'DEBT_COLLECTION',
+  'CONSUMER_BILLING', 'UTILITY', 'FOIA', 'BUSINESS_FORMATION',
+  'CUSTODY', 'EMPLOYMENT_PAYROLL', 'VEHICLE_DISPUTE', 'CIVIL_OTHER'
+);
+CREATE TYPE "IssueStatus" AS ENUM ('ACTIVE', 'RESOLVED', 'MONITORING');
 CREATE TYPE "OutputType" AS ENUM ('FACTUAL_PACKET', 'AFFIDAVIT_DRAFT', 'FORM_PREFILL', 'SUMMARY');
 CREATE TYPE "DeliveryStatus" AS ENUM ('GENERATED', 'DELIVERED', 'ARCHIVED');
 
--- Raw text verbatim, exactly as typed. Never edited, never paraphrased.
+-- Raw text exactly as the user typed it. rawText is never modified after write.
 CREATE TABLE "NarrativeEntry" (
-  "id"        TEXT        NOT NULL,
-  "caseId"    TEXT        NOT NULL,
-  "text"      TEXT        NOT NULL,
-  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "id"               TEXT               NOT NULL,
+  "caseId"           TEXT               NOT NULL,
+  "rawText"          TEXT               NOT NULL,
+  "enteredAt"        TIMESTAMPTZ        NOT NULL DEFAULT NOW(),
+  "sessionId"        TEXT,
+  "extractionStatus" "ExtractionStatus" NOT NULL DEFAULT 'PENDING',
 
   CONSTRAINT "NarrativeEntry_pkey" PRIMARY KEY ("id")
 );
@@ -293,14 +301,13 @@ ALTER TABLE "NarrativeEntry"
 
 -- One row per legal issue classified after intake. A single Case can have multiple.
 CREATE TABLE "IssueTrack" (
-  "id"           TEXT          NOT NULL,
-  "caseId"       TEXT          NOT NULL,
-  "category"     TEXT          NOT NULL,
-  "subcategory"  TEXT,
-  "status"       "IssueStatus" NOT NULL DEFAULT 'OPEN',
-  "classifiedBy" TEXT          NOT NULL,
-  "createdAt"    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-  "updatedAt"    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  "id"              TEXT          NOT NULL,
+  "caseId"          TEXT          NOT NULL,
+  "trackType"       "TrackType"   NOT NULL,
+  "status"          "IssueStatus" NOT NULL DEFAULT 'ACTIVE',
+  "urgencySignal"   BOOLEAN       NOT NULL DEFAULT FALSE,
+  "extractedFromId" TEXT,
+  "createdAt"       TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
 
   CONSTRAINT "IssueTrack_pkey" PRIMARY KEY ("id")
 );
@@ -309,6 +316,11 @@ ALTER TABLE "IssueTrack"
   ADD CONSTRAINT "IssueTrack_caseId_fkey"
   FOREIGN KEY ("caseId") REFERENCES "Case"("id")
   ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "IssueTrack"
+  ADD CONSTRAINT "IssueTrack_extractedFromId_fkey"
+  FOREIGN KEY ("extractedFromId") REFERENCES "NarrativeEntry"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- People, agencies, and institutions named in the narrative.
 CREATE TABLE "Actor" (

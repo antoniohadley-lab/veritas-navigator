@@ -185,42 +185,65 @@ enum RuleSourceType {
 }
 
 // ─── NarrativeEntry ──────────────────────────────────────────────────────────
-// Raw text verbatim, exactly as the user typed it. Never edited, never paraphrased.
-// All structured extractions (TimelineEvents, Actors, Claims) trace back here.
+// Raw text exactly as the user typed it. rawText is never modified after write.
+// All structured extractions (TimelineEvents, IssueTracks, Claims) trace back here.
 
 model NarrativeEntry {
-  id        String   @id @default(cuid())
-  caseId    String
-  case      Case     @relation(fields: [caseId], references: [id])
-  text      String
-  createdAt DateTime @default(now())
+  id                String            @id @default(cuid())
+  caseId            String
+  case              Case              @relation(fields: [caseId], references: [id])
+  rawText           String
+  enteredAt         DateTime          @default(now())
+  sessionId         String?
+  extractionStatus  ExtractionStatus  @default(PENDING)
 
   timelineEvents TimelineEvent[]
+  issueTracks    IssueTrack[]
+}
+
+enum ExtractionStatus {
+  PENDING
+  PROCESSED
+  FLAGGED
 }
 
 // ─── IssueTrack ───────────────────────────────────────────────────────────────
 // One row per legal issue identified in the Case, classified after intake.
-// A single Case can produce multiple IssueTracks (e.g. nonpayment + security deposit).
+// A single Case can produce multiple IssueTracks.
 
 model IssueTrack {
-  id           String      @id @default(cuid())
-  caseId       String
-  case         Case        @relation(fields: [caseId], references: [id])
-  category     String      // "housing_eviction" | "security_deposit" | "foia" | ...
-  subcategory  String?
-  status       IssueStatus @default(OPEN)
-  classifiedBy String      // "system" or the actorId of the human reviewer
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  id              String          @id @default(cuid())
+  caseId          String
+  case            Case            @relation(fields: [caseId], references: [id])
+  trackType       TrackType
+  status          IssueStatus     @default(ACTIVE)
+  urgencySignal   Boolean         @default(false)
+  extractedFromId String?
+  extractedFrom   NarrativeEntry? @relation(fields: [extractedFromId], references: [id])
+  createdAt       DateTime        @default(now())
 
   claims Claim[]
 }
 
+enum TrackType {
+  HOUSING
+  SECURITY_DEPOSIT
+  FORECLOSURE
+  DEBT_COLLECTION
+  CONSUMER_BILLING
+  UTILITY
+  FOIA
+  BUSINESS_FORMATION
+  CUSTODY
+  EMPLOYMENT_PAYROLL
+  VEHICLE_DISPUTE
+  CIVIL_OTHER
+}
+
 enum IssueStatus {
-  OPEN
+  ACTIVE
   RESOLVED
-  ESCALATED
-  CLOSED
+  MONITORING
 }
 
 // ─── Actor ────────────────────────────────────────────────────────────────────
