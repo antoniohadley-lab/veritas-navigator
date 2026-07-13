@@ -279,8 +279,8 @@ CREATE TYPE "TrackType" AS ENUM (
   'CUSTODY', 'EMPLOYMENT_PAYROLL', 'VEHICLE_DISPUTE', 'CIVIL_OTHER'
 );
 CREATE TYPE "IssueStatus" AS ENUM ('ACTIVE', 'RESOLVED', 'MONITORING');
-CREATE TYPE "OutputType" AS ENUM ('FACTUAL_PACKET', 'AFFIDAVIT_DRAFT', 'FORM_PREFILL', 'SUMMARY');
-CREATE TYPE "DeliveryStatus" AS ENUM ('GENERATED', 'DELIVERED', 'ARCHIVED');
+CREATE TYPE "OutputType" AS ENUM ('LEGAL_PACKET', 'IOAP', 'ATTORNEY_HANDOFF', 'SESSION_BRIEF');
+CREATE TYPE "AccessLevel" AS ENUM ('PUBLIC_METADATA', 'AUTHORIZED_FULL');
 
 -- Raw text exactly as the user typed it. rawText is never modified after write.
 CREATE TABLE "NarrativeEntry" (
@@ -433,14 +433,14 @@ ALTER TABLE "Document"
 
 -- Packets and documents generated from this Case.
 CREATE TABLE "Output" (
-  "id"              TEXT             NOT NULL,
-  "caseId"          TEXT             NOT NULL,
-  "outputType"      "OutputType"     NOT NULL,
-  "generatedAt"     TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
-  "deliveryStatus"  "DeliveryStatus" NOT NULL DEFAULT 'GENERATED',
-  "stripePaymentId" TEXT,
-  "packetId"        TEXT,
-  "contentsRef"     TEXT,
+  "id"                 TEXT           NOT NULL,
+  "caseId"             TEXT           NOT NULL,
+  "outputType"         "OutputType"   NOT NULL,
+  "generatedAt"        TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+  "generatedBy"        TEXT           NOT NULL,
+  "snapshotHash"       TEXT,
+  "accessLevel"        "AccessLevel"  NOT NULL DEFAULT 'PUBLIC_METADATA',
+  "tokenizedAccessUrl" TEXT,
 
   CONSTRAINT "Output_pkey" PRIMARY KEY ("id")
 );

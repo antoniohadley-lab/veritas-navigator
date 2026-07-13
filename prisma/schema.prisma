@@ -326,29 +326,27 @@ model Document {
 
 // ─── Output ───────────────────────────────────────────────────────────────────
 // Records every packet or document generated from this Case.
-// Factual Packet generation writes one Output row + one VerificationEvent(report_exported).
 
 model Output {
-  id              String         @id @default(cuid())
-  caseId          String
-  case            Case           @relation(fields: [caseId], references: [id])
-  outputType      OutputType
-  generatedAt     DateTime       @default(now())
-  deliveryStatus  DeliveryStatus @default(GENERATED)
-  stripePaymentId String?
-  packetId        String?        // matches coverPage.packetId in factual-packet.ts
-  contentsRef     String?        // storage URI to the generated file
+  id                 String      @id @default(cuid())
+  caseId             String
+  case               Case        @relation(fields: [caseId], references: [id])
+  outputType         OutputType
+  generatedAt        DateTime    @default(now())
+  generatedBy        String      // actorId or "system"
+  snapshotHash       String?     // SHA-256 of all source rows at generation time
+  accessLevel        AccessLevel @default(PUBLIC_METADATA)
+  tokenizedAccessUrl String?
 }
 
 enum OutputType {
-  FACTUAL_PACKET
-  AFFIDAVIT_DRAFT
-  FORM_PREFILL
-  SUMMARY
+  LEGAL_PACKET
+  IOAP
+  ATTORNEY_HANDOFF
+  SESSION_BRIEF
 }
 
-enum DeliveryStatus {
-  GENERATED
-  DELIVERED
-  ARCHIVED
+enum AccessLevel {
+  PUBLIC_METADATA
+  AUTHORIZED_FULL
 }
