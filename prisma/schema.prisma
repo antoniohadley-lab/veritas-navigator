@@ -1,6 +1,6 @@
-// Veritas / STAND — Shared Event Ledger (Prisma 7)
-// Connection URL is in prisma.config.ts (Prisma 7 requirement).
-// To apply schema to Supabase: see supabase-migration.sql in the prisma/ directory.
+// Veritas / STAND — schema.prisma
+// Run: npx prisma migrate dev --name stand-full-schema
+// Supabase fallback: see prisma/supabase-migration.sql
 
 generator client {
   provider = "prisma-client-js"
@@ -10,34 +10,47 @@ datasource db {
   provider = "postgresql"
 }
 
-// ─── Case ─────────────────────────────────────────────────────────────────────
+// ─── USER & SESSION ───────────────────────────────────────────────────────────
 
-model Case {
-  id        String     @id @default(cuid())
-  userId    String
-  caseType  CaseType
-  status    CaseStatus @default(ACTIVE)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-
-  fieldJobs        FieldJob[]
-  events           VerificationEvent[]
-  narrativeEntries NarrativeEntry[]
-  issueTracks      IssueTrack[]
-  actors           Actor[]
-  timelineEvents   TimelineEvent[]
-  claims           Claim[]
-  documents        Document[]
-  outputs          Output[]
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  cases        Case[]
+  sessions     UserSession[]
 }
 
-enum CaseType {
-  FORECLOSURE
-  EVICTION
-  CUSTODY
-  CIVIL_DISPUTE
-  BUSINESS_FORMATION
-  OTHER
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  token     String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+}
+
+// ─── CASE ─────────────────────────────────────────────────────────────────────
+// A Case is a person's situation. caseType is removed from required — categories
+// emerge from IssueTracks, not from upfront user selection.
+
+model Case {
+  id                 String              @id @default(cuid())
+  userId             String
+  user               User                @relation(fields: [userId], references: [id])
+  status             CaseStatus          @default(ACTIVE)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  narrativeEntries   NarrativeEntry[]
+  issueTracks        IssueTrack[]
+  actors             Actor[]
+  timelineEvents     TimelineEvent[]
+  claims             Claim[]
+  documents          CaseDocument[]
+  verificationEvents VerificationEvent[]
+  outputs            Output[]
+  fieldJobs          FieldJob[]
 }
 
 enum CaseStatus {
@@ -46,13 +59,235 @@ enum CaseStatus {
   ARCHIVED
 }
 
-// ─── FieldJob ─────────────────────────────────────────────────────────────────
-// One row per physical field visit. caseId null = standalone VROS booking.
+// ─── NARRATIVE ENTRY ──────────────────────────────────────────────────────────
+// Raw input, exactly as typed. Never modified after creation.
+
+model NarrativeEntry {
+  id               String           @id @default(cuid())
+  caseId           String
+  case             Case             @relation(fields: [caseId], references: [id])
+  rawText          String
+  enteredAt        DateTime         @default(now())
+  sessionId        String?
+  extractionStatus ExtractionStatus @default(PENDING)
+  issueTracks      IssueTrack[]
+  timelineEvents   TimelineEvent[]
+  claims           Claim[]
+}
+
+enum ExtractionStatus {
+  PENDING
+  PROCESSED
+  FLAGGED
+}
+
+// ─── ISSUE TRACK ──────────────────────────────────────────────────────────────
+// One Case can have multiple concurrent tracks.
+// Tracks are outputs of analysis, not upfront selections.
+
+model IssueTrack {
+  id               String          @id @default(cuid())
+  caseId           String
+  case             Case            @relation(fields: [caseId], references: [id])
+  narrativeEntryId String?
+  narrativeEntry   NarrativeEntry? @relation(fields: [narrativeEntryId], references: [id])
+  trackType        TrackType
+  status           TrackStatus     @default(ACTIVE)
+  urgencySignal    Boolean         @default(false)
+  urgencyNote      String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  claims           Claim[]
+  timelineEvents   TimelineEvent[]
+}
+
+enum TrackType {
+  HOUSING_FORECLOSURE_EVICTION
+  MUNICIPAL_DISPUTE
+  FAMILY_CUSTODY_SUPPORT
+  DEBT_COLLECTIONS_GARNISHMENT
+  EMPLOYMENT_HR_PAYROLL
+  BUSINESS_FORMATION_COMPLIANCE
+  BENEFITS_AGENCY
+  VEHICLE_CONSUMER
+  EVIDENCE_PRESERVATION
+  OTHER
+}
+
+enum TrackStatus {
+  ACTIVE
+  MONITORING
+  RESOLVED
+}
+
+// ─── ACTOR ────────────────────────────────────────────────────────────────────
+// Any person, agency, institution, or entity named in the case.
+
+model Actor {
+  id          String    @id @default(cuid())
+  caseId      String
+  case        Case      @relation(fields: [caseId], references: [id])
+  name        String
+  actorType   ActorType
+  role        String?
+  contactInfo String?
+  createdAt   DateTime  @default(now())
+}
+
+enum ActorType {
+  PERSON
+  AGENCY
+  COURT
+  EMPLOYER
+  LENDER
+  INSTITUTION
+  OTHER
+}
+
+// ─── TIMELINE EVENT ───────────────────────────────────────────────────────────
+// A structured event extracted from narrative input or added directly.
+
+model TimelineEvent {
+  id               String          @id @default(cuid())
+  caseId           String
+  case             Case            @relation(fields: [caseId], references: [id])
+  issueTrackId     String?
+  issueTrack       IssueTrack?     @relation(fields: [issueTrackId], references: [id])
+  narrativeEntryId String?
+  narrativeEntry   NarrativeEntry? @relation(fields: [narrativeEntryId], references: [id])
+  eventDate        DateTime?
+  eventDateRaw     String?         // what the user said: "last Tuesday," "about a month ago"
+  description      String
+  actorNames       String?
+  documentRef      String?
+  entrySource      EventSource     @default(USER_ENTERED)
+  createdAt        DateTime        @default(now())
+}
+
+enum EventSource {
+  USER_ENTERED
+  SYSTEM_EXTRACTED
+  FIELD_VERIFIED
+}
+
+// ─── CLAIM ────────────────────────────────────────────────────────────────────
+// A specific factual assertion that can be verified against a source.
+
+model Claim {
+  id                 String              @id @default(cuid())
+  caseId             String
+  case               Case                @relation(fields: [caseId], references: [id])
+  issueTrackId       String?
+  issueTrack         IssueTrack?         @relation(fields: [issueTrackId], references: [id])
+  narrativeEntryId   String?
+  narrativeEntry     NarrativeEntry?     @relation(fields: [narrativeEntryId], references: [id])
+  claimText          String
+  enteredAt          DateTime            @default(now())
+  verificationStatus VerifStatus         @default(UNVERIFIED)
+  sourceUrl          String?
+  sourceTitle        String?
+  sourceTextHash     String?             // SHA-256 of the source text at time of verification
+  verifiedAt         DateTime?
+  verifiedBy         String?             // "AH, confirmed against [URL], [date]"
+  priorClaimId       String?
+  verificationEvents VerificationEvent[]
+}
+
+enum VerifStatus {
+  UNVERIFIED
+  CONFIRMED
+  CONTRADICTED
+  CANNOT_VERIFY
+}
+
+// ─── CASE DOCUMENT ────────────────────────────────────────────────────────────
+// Uploaded files attached to a case. Hash proves integrity.
+
+model CaseDocument {
+  id           String   @id @default(cuid())
+  caseId       String
+  case         Case     @relation(fields: [caseId], references: [id])
+  filename     String
+  mimeType     String
+  storageUri   String
+  fileHash     String   // SHA-256 of file contents at upload
+  uploadedAt   DateTime @default(now())
+  uploadedBy   String
+  description  String?
+  exhibitLabel String?  // "Exhibit A", "Exhibit B" etc.
+}
+
+// ─── VERIFICATION EVENT ───────────────────────────────────────────────────────
+// Every meaningful action in the system — field or platform.
+// eventType values:
+//   platform: fact_statement_drafted | claim_logged | source_retrieved |
+//             form_check_run | exhibit_cross_referenced | finalized |
+//             output_generated | upl_checkpoint_triggered
+//   field:    arrival | photo_captured | affidavit_executed | report_exported |
+//             custody_accepted | destination_reached | custody_transferred
+
+model VerificationEvent {
+  id           String    @id @default(cuid())
+  caseId       String?
+  case         Case?     @relation(fields: [caseId], references: [id])
+  claimId      String?
+  claim        Claim?    @relation(fields: [claimId], references: [id])
+  fieldJobId   String?
+  fieldJob     FieldJob? @relation(fields: [fieldJobId], references: [id])
+  actorId      String
+  roleType     String
+  eventType    String
+  payloadType  String
+  payloadRef   String?
+  timestamp    DateTime  @default(now())
+  geoLat       Float?
+  geoLng       Float?
+  evidenceUri  String?
+  notes        String?
+  priorEventId String?
+  evidenceHash String?   // SHA-256
+  verifiedBy   String?   // "AH, [date], [URL]"
+}
+
+// ─── OUTPUT ───────────────────────────────────────────────────────────────────
+// Every packet or export generated from a Case.
+
+model Output {
+  id                  String      @id @default(cuid())
+  caseId              String
+  case                Case        @relation(fields: [caseId], references: [id])
+  outputType          OutputType
+  generatedAt         DateTime    @default(now())
+  generatedBy         String
+  snapshotHash        String      // hash of all source data at generation time
+  storageUri          String?
+  accessLevel         AccessLevel @default(AUTHORIZED_FULL)
+  publicMetadataToken String?     // the token for [domain]/verify
+  tokenExpiresAt      DateTime?
+}
+
+enum OutputType {
+  LEGAL_PACKET
+  IOAP
+  SESSION_BRIEF
+  ATTORNEY_HANDOFF
+  EMPLOYER_HR_PACKET
+  LENDER_UNDERWRITER_PACKET
+  FIELD_SERVICE_HANDOFF
+}
+
+enum AccessLevel {
+  PUBLIC_METADATA
+  AUTHORIZED_FULL
+}
+
+// ─── FIELD JOB ────────────────────────────────────────────────────────────────
 
 model FieldJob {
   id                   String      @id @default(cuid())
   caseId               String?
   case                 Case?       @relation(fields: [caseId], references: [id])
+  assignmentNumber     String      @unique // VFS-YYYY-000001
   serviceType          ServiceType
   clientName           String
   location             String
@@ -62,15 +297,16 @@ model FieldJob {
   feeQuoted            Decimal?
   feeCollected         Decimal?
   createdAt            DateTime    @default(now())
-
-  events VerificationEvent[]
+  events               VerificationEvent[]
 }
 
 enum ServiceType {
   NOTARY
   PROCESS_SERVICE
   PROPERTY_INSPECTION
+  BUSINESS_VERIFICATION
   SPECIMEN_COURIER
+  COURT_FILING
   OTHER
 }
 
@@ -83,98 +319,35 @@ enum JobStatus {
   CANCELLED
 }
 
-// ─── VerificationEvent ────────────────────────────────────────────────────────
-// Immutable event log shared by STAND triage and VROS field visits.
-// evidenceHash is SHA-256 computed at write time, never updated.
-// Factual Packet = all events for a caseId ordered by timestamp, rendered to PDF.
+// ─── CONTRACTOR PROFILE ───────────────────────────────────────────────────────
 
-model VerificationEvent {
-  id           String      @id @default(cuid())
-  caseId       String?
-  case         Case?       @relation(fields: [caseId], references: [id])
-  fieldJobId   String?
-  fieldJob     FieldJob?   @relation(fields: [fieldJobId], references: [id])
-  actorId      String
-  roleType     String      // "litigant" | "notary" | "process_server" | "inspector"
-  eventType    EventType
-  payloadType  String      // "document" | "property" | "specimen" | "case_note"
-  payloadRef   String?
-  timestamp    DateTime    @default(now())
-  geoLat       Float?
-  geoLng       Float?
-  evidenceUri  String?
-  notes        String?
-  priorEventId String?
-  evidenceHash String?
-
-  // source_retrieved — structured source fields (null for other event types)
-  sourceUrl        String?
-  sourceTitle      String?
-  sourceTextHash   String?
-  verifiedDate     DateTime?
-
-  // result_displayed — structured verification result (null for other event types)
-  verificationStatus VerificationStatus?
-
-  // Evidence-grammar tag: how this event's user-facing text was produced
-  origin ContentOrigin?
+model ContractorProfile {
+  id              String    @id @default(cuid())
+  legalName       String
+  idVerified      Boolean   @default(false)
+  ageVerified     Boolean   @default(false)
+  agreementSigned Boolean   @default(false)
+  agreementDate   DateTime?
+  createdAt       DateTime  @default(now())
 }
 
-enum EventType {
-  // STAND Verification Check flow
-  claim_logged
-  source_retrieved
-  source_not_found
-  consistency_checked
-  result_displayed
-  affidavit_drafted
-  form_check_run
-  exhibit_cross_referenced
-  finalized
-  // BYO AI Cross-Check flow
-  document_drafted
-  cross_check_pass
-  discrepancies_flagged
-  // VROS field events
-  arrival
-  photo_captured
-  affidavit_executed
-  report_exported
-}
-
-enum VerificationStatus {
-  match
-  mismatch
-  cannot_verify
-}
-
-// Evidence-grammar tag: source of user-facing text — required by UPL disclosure standard §8.
-// Every AI-touched output must be visibly labeled in the UI when origin = ai_suggested_rewrite.
-enum ContentOrigin {
-  user_entered
-  system_derived
-  ai_suggested_rewrite
-}
-
-// ─── RuleSource ───────────────────────────────────────────────────────────────
-// Bounded universe of verified statutory text the Verification Check may compare against.
-// The AI is never allowed to compare against open-web text or its own training data —
-// only against rows in this table where lastVerifiedDate is within staleAfterDays.
+// ─── RULE SOURCE ──────────────────────────────────────────────────────────────
+// Bounded universe of verified statutory text the Verification Check compares against.
+// The AI compares only against rows where lastVerifiedDate is within staleAfterDays.
 
 model RuleSource {
-  id               String   @id @default(cuid())
-  jurisdiction     String   // "michigan" | "federal" | "wayne_county" ...
-  topic            String   // "eviction notice period" | "foia response window" ...
+  id               String         @id @default(cuid())
+  jurisdiction     String
+  topic            String
   sourceType       RuleSourceType
-  exactText        String   // verbatim statutory text — no paraphrase, no summary
+  exactText        String
   sourceUrl        String
   lastVerifiedDate DateTime
-  // Signed verification log — per Bible §5: "Last verified by [initials], [date], confirmed against [URL]"
-  // A timestamp alone is not the same claim as a signed log that holds up under institutional audit.
+  // "Last verified by [initials], [date], confirmed against [URL]" — per Bible §5
   verifiedBy       String?
-  staleAfterDays   Int      @default(45)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  staleAfterDays   Int            @default(45)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 }
 
 enum RuleSourceType {
@@ -182,171 +355,4 @@ enum RuleSourceType {
   court_rule
   official_form
   administrative_rule
-}
-
-// ─── NarrativeEntry ──────────────────────────────────────────────────────────
-// Raw text exactly as the user typed it. rawText is never modified after write.
-// All structured extractions (TimelineEvents, IssueTracks, Claims) trace back here.
-
-model NarrativeEntry {
-  id                String            @id @default(cuid())
-  caseId            String
-  case              Case              @relation(fields: [caseId], references: [id])
-  rawText           String
-  enteredAt         DateTime          @default(now())
-  sessionId         String?
-  extractionStatus  ExtractionStatus  @default(PENDING)
-
-  timelineEvents TimelineEvent[]
-  issueTracks    IssueTrack[]
-}
-
-enum ExtractionStatus {
-  PENDING
-  PROCESSED
-  FLAGGED
-}
-
-// ─── IssueTrack ───────────────────────────────────────────────────────────────
-// One row per legal issue identified in the Case, classified after intake.
-// A single Case can produce multiple IssueTracks.
-
-model IssueTrack {
-  id              String          @id @default(cuid())
-  caseId          String
-  case            Case            @relation(fields: [caseId], references: [id])
-  trackType       TrackType
-  status          IssueStatus     @default(ACTIVE)
-  urgencySignal   Boolean         @default(false)
-  extractedFromId String?
-  extractedFrom   NarrativeEntry? @relation(fields: [extractedFromId], references: [id])
-  createdAt       DateTime        @default(now())
-
-  claims Claim[]
-}
-
-enum TrackType {
-  HOUSING
-  SECURITY_DEPOSIT
-  FORECLOSURE
-  DEBT_COLLECTION
-  CONSUMER_BILLING
-  UTILITY
-  FOIA
-  BUSINESS_FORMATION
-  CUSTODY
-  EMPLOYMENT_PAYROLL
-  VEHICLE_DISPUTE
-  CIVIL_OTHER
-}
-
-enum IssueStatus {
-  ACTIVE
-  RESOLVED
-  MONITORING
-}
-
-// ─── Actor ────────────────────────────────────────────────────────────────────
-// People, agencies, and institutions named in the narrative.
-
-model Actor {
-  id          String   @id @default(cuid())
-  caseId      String
-  case        Case     @relation(fields: [caseId], references: [id])
-  name        String
-  role        String   // "landlord" | "tenant" | "court" | "agency" | "creditor" | ...
-  contactInfo String?
-  createdAt   DateTime @default(now())
-
-  timelineEvents TimelineEvent[]
-}
-
-// ─── TimelineEvent ────────────────────────────────────────────────────────────
-// Structured events extracted from the narrative, ordered by when they occurred in the world.
-// Distinct from VerificationEvent: TimelineEvents record what happened to the user;
-// VerificationEvents record what STAND/VROS did in response.
-
-model TimelineEvent {
-  id               String          @id @default(cuid())
-  caseId           String
-  case             Case            @relation(fields: [caseId], references: [id])
-  occurredAt       DateTime
-  label            String          // "Landlord sent written notice"
-  origin           ContentOrigin
-  narrativeEntryId String?
-  narrativeEntry   NarrativeEntry? @relation(fields: [narrativeEntryId], references: [id])
-  actorId          String?
-  actor            Actor?          @relation(fields: [actorId], references: [id])
-  createdAt        DateTime        @default(now())
-
-  claims    Claim[]
-  documents Document[]
-}
-
-// ─── Claim ────────────────────────────────────────────────────────────────────
-// A specific factual assertion the user wants verified against the Rule Store.
-// One Claim per assertion — never bundle multiple facts into one row.
-
-model Claim {
-  id                 String             @id @default(cuid())
-  caseId             String
-  case               Case               @relation(fields: [caseId], references: [id])
-  issueTrackId       String?
-  issueTrack         IssueTrack?        @relation(fields: [issueTrackId], references: [id])
-  timelineEventId    String?
-  timelineEvent      TimelineEvent?     @relation(fields: [timelineEventId], references: [id])
-  statement          String             // the factual assertion, exactly as stated
-  verificationStatus VerificationStatus @default(cannot_verify)
-  ruleSourceId       String?
-  checkedAt          DateTime?
-  origin             ContentOrigin
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-
-  documents Document[]
-}
-
-// ─── Document ─────────────────────────────────────────────────────────────────
-// Uploaded files. hash is SHA-256 hex computed at write time, never updated.
-
-model Document {
-  id              String         @id @default(cuid())
-  caseId          String
-  case            Case           @relation(fields: [caseId], references: [id])
-  filename        String
-  mimeType        String
-  storageUri      String
-  hash            String
-  claimId         String?
-  claim           Claim?         @relation(fields: [claimId], references: [id])
-  timelineEventId String?
-  timelineEvent   TimelineEvent? @relation(fields: [timelineEventId], references: [id])
-  uploadedAt      DateTime       @default(now())
-}
-
-// ─── Output ───────────────────────────────────────────────────────────────────
-// Records every packet or document generated from this Case.
-
-model Output {
-  id                 String      @id @default(cuid())
-  caseId             String
-  case               Case        @relation(fields: [caseId], references: [id])
-  outputType         OutputType
-  generatedAt        DateTime    @default(now())
-  generatedBy        String      // actorId or "system"
-  snapshotHash       String?     // SHA-256 of all source rows at generation time
-  accessLevel        AccessLevel @default(PUBLIC_METADATA)
-  tokenizedAccessUrl String?
-}
-
-enum OutputType {
-  LEGAL_PACKET
-  IOAP
-  ATTORNEY_HANDOFF
-  SESSION_BRIEF
-}
-
-enum AccessLevel {
-  PUBLIC_METADATA
-  AUTHORIZED_FULL
 }

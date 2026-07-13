@@ -2,125 +2,255 @@
 -- Supabase SQL Editor migration — paste this directly if npx prisma migrate dev
 -- cannot run (binary engine blocked, no local Postgres, etc.).
 --
--- Run this in: Supabase Dashboard → SQL Editor → New Query
--- This matches prisma/schema.prisma exactly as of the stand_rename migration.
+-- Run in: Supabase Dashboard → SQL Editor → New Query
+-- This matches prisma/schema.prisma exactly.
+-- Safe to re-run: ON CONFLICT DO NOTHING on seed inserts.
 
 -- ─── Enums ───────────────────────────────────────────────────────────────────
 
-CREATE TYPE "CaseType" AS ENUM (
-  'FORECLOSURE', 'EVICTION', 'CUSTODY', 'CIVIL_DISPUTE', 'BUSINESS_FORMATION', 'OTHER'
+CREATE TYPE "CaseStatus"        AS ENUM ('ACTIVE', 'CLOSED', 'ARCHIVED');
+CREATE TYPE "ExtractionStatus"  AS ENUM ('PENDING', 'PROCESSED', 'FLAGGED');
+CREATE TYPE "TrackType"         AS ENUM (
+  'HOUSING_FORECLOSURE_EVICTION', 'MUNICIPAL_DISPUTE', 'FAMILY_CUSTODY_SUPPORT',
+  'DEBT_COLLECTIONS_GARNISHMENT', 'EMPLOYMENT_HR_PAYROLL',
+  'BUSINESS_FORMATION_COMPLIANCE', 'BENEFITS_AGENCY', 'VEHICLE_CONSUMER',
+  'EVIDENCE_PRESERVATION', 'OTHER'
+);
+CREATE TYPE "TrackStatus"       AS ENUM ('ACTIVE', 'MONITORING', 'RESOLVED');
+CREATE TYPE "ActorType"         AS ENUM ('PERSON', 'AGENCY', 'COURT', 'EMPLOYER', 'LENDER', 'INSTITUTION', 'OTHER');
+CREATE TYPE "EventSource"       AS ENUM ('USER_ENTERED', 'SYSTEM_EXTRACTED', 'FIELD_VERIFIED');
+CREATE TYPE "VerifStatus"       AS ENUM ('UNVERIFIED', 'CONFIRMED', 'CONTRADICTED', 'CANNOT_VERIFY');
+CREATE TYPE "OutputType"        AS ENUM ('LEGAL_PACKET', 'IOAP', 'SESSION_BRIEF', 'ATTORNEY_HANDOFF', 'EMPLOYER_HR_PACKET', 'LENDER_UNDERWRITER_PACKET', 'FIELD_SERVICE_HANDOFF');
+CREATE TYPE "AccessLevel"       AS ENUM ('PUBLIC_METADATA', 'AUTHORIZED_FULL');
+CREATE TYPE "ServiceType"       AS ENUM ('NOTARY', 'PROCESS_SERVICE', 'PROPERTY_INSPECTION', 'BUSINESS_VERIFICATION', 'SPECIMEN_COURIER', 'COURT_FILING', 'OTHER');
+CREATE TYPE "JobStatus"         AS ENUM ('SCHEDULED', 'EN_ROUTE', 'ON_SITE', 'COMPLETED', 'MISSED', 'CANCELLED');
+CREATE TYPE "RuleSourceType"    AS ENUM ('statute', 'court_rule', 'official_form', 'administrative_rule');
+
+-- ─── User & Session ──────────────────────────────────────────────────────────
+
+CREATE TABLE "User" (
+  "id"           TEXT        NOT NULL,
+  "email"        TEXT        NOT NULL,
+  "passwordHash" TEXT        NOT NULL,
+  "createdAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "User_pkey"  PRIMARY KEY ("id"),
+  CONSTRAINT "User_email" UNIQUE ("email")
 );
 
-CREATE TYPE "CaseStatus" AS ENUM ('ACTIVE', 'CLOSED', 'ARCHIVED');
+CREATE TABLE "UserSession" (
+  "id"        TEXT        NOT NULL,
+  "userId"    TEXT        NOT NULL,
+  "token"     TEXT        NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "expiresAt" TIMESTAMPTZ NOT NULL,
 
-CREATE TYPE "ServiceType" AS ENUM (
-  'NOTARY', 'PROCESS_SERVICE', 'PROPERTY_INSPECTION', 'SPECIMEN_COURIER', 'OTHER'
+  CONSTRAINT "UserSession_pkey"  PRIMARY KEY ("id"),
+  CONSTRAINT "UserSession_token" UNIQUE ("token")
 );
 
-CREATE TYPE "JobStatus" AS ENUM (
-  'SCHEDULED', 'EN_ROUTE', 'ON_SITE', 'COMPLETED', 'MISSED', 'CANCELLED'
-);
-
-CREATE TYPE "EventType" AS ENUM (
-  -- STAND Verification Check flow
-  'claim_logged',
-  'source_retrieved',
-  'source_not_found',
-  'consistency_checked',
-  'result_displayed',
-  'affidavit_drafted',
-  'form_check_run',
-  'exhibit_cross_referenced',
-  'finalized',
-  -- BYO AI Cross-Check flow
-  'document_drafted',
-  'cross_check_pass',
-  'discrepancies_flagged',
-  -- VROS field events
-  'arrival',
-  'photo_captured',
-  'affidavit_executed',
-  'report_exported'
-);
-
-CREATE TYPE "VerificationStatus" AS ENUM ('match', 'mismatch', 'cannot_verify');
-
--- Evidence-grammar tag: source of user-facing text.
--- ai_suggested_rewrite must be visibly labeled in the UI (UPL disclosure standard §8).
-CREATE TYPE "ContentOrigin" AS ENUM (
-  'user_entered', 'system_derived', 'ai_suggested_rewrite'
-);
-
-CREATE TYPE "RuleSourceType" AS ENUM (
-  'statute', 'court_rule', 'official_form', 'administrative_rule'
-);
+ALTER TABLE "UserSession"
+  ADD CONSTRAINT "UserSession_userId_fkey"
+  FOREIGN KEY ("userId") REFERENCES "User"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- ─── Case ─────────────────────────────────────────────────────────────────────
 
 CREATE TABLE "Case" (
-  "id"        TEXT        NOT NULL,
-  "userId"    TEXT        NOT NULL,
-  "caseType"  "CaseType"  NOT NULL,
+  "id"        TEXT         NOT NULL,
+  "userId"    TEXT         NOT NULL,
   "status"    "CaseStatus" NOT NULL DEFAULT 'ACTIVE',
-  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "createdAt" TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  "updatedAt" TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
   CONSTRAINT "Case_pkey" PRIMARY KEY ("id")
 );
 
--- ─── FieldJob ─────────────────────────────────────────────────────────────────
+ALTER TABLE "Case"
+  ADD CONSTRAINT "Case_userId_fkey"
+  FOREIGN KEY ("userId") REFERENCES "User"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
 
-CREATE TABLE "FieldJob" (
-  "id"                   TEXT          NOT NULL,
-  "caseId"               TEXT,
-  "serviceType"          "ServiceType" NOT NULL,
-  "clientName"           TEXT          NOT NULL,
-  "location"             TEXT          NOT NULL,
-  "scheduledWindowStart" TIMESTAMPTZ,
-  "scheduledWindowEnd"   TIMESTAMPTZ,
-  "status"               "JobStatus"   NOT NULL DEFAULT 'SCHEDULED',
-  "feeQuoted"            DECIMAL(65,30),
-  "feeCollected"         DECIMAL(65,30),
-  "createdAt"            TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+-- ─── NarrativeEntry ──────────────────────────────────────────────────────────
 
-  CONSTRAINT "FieldJob_pkey" PRIMARY KEY ("id")
+CREATE TABLE "NarrativeEntry" (
+  "id"               TEXT               NOT NULL,
+  "caseId"           TEXT               NOT NULL,
+  "rawText"          TEXT               NOT NULL,
+  "enteredAt"        TIMESTAMPTZ        NOT NULL DEFAULT NOW(),
+  "sessionId"        TEXT,
+  "extractionStatus" "ExtractionStatus" NOT NULL DEFAULT 'PENDING',
+
+  CONSTRAINT "NarrativeEntry_pkey" PRIMARY KEY ("id")
 );
 
-ALTER TABLE "FieldJob"
-  ADD CONSTRAINT "FieldJob_caseId_fkey"
+ALTER TABLE "NarrativeEntry"
+  ADD CONSTRAINT "NarrativeEntry_caseId_fkey"
   FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- ─── IssueTrack ───────────────────────────────────────────────────────────────
+
+CREATE TABLE "IssueTrack" (
+  "id"               TEXT          NOT NULL,
+  "caseId"           TEXT          NOT NULL,
+  "narrativeEntryId" TEXT,
+  "trackType"        "TrackType"   NOT NULL,
+  "status"           "TrackStatus" NOT NULL DEFAULT 'ACTIVE',
+  "urgencySignal"    BOOLEAN       NOT NULL DEFAULT FALSE,
+  "urgencyNote"      TEXT,
+  "createdAt"        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  "updatedAt"        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "IssueTrack_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "IssueTrack"
+  ADD CONSTRAINT "IssueTrack_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "IssueTrack"
+  ADD CONSTRAINT "IssueTrack_narrativeEntryId_fkey"
+  FOREIGN KEY ("narrativeEntryId") REFERENCES "NarrativeEntry"("id")
   ON DELETE SET NULL ON UPDATE CASCADE;
 
+-- ─── Actor ────────────────────────────────────────────────────────────────────
+
+CREATE TABLE "Actor" (
+  "id"          TEXT        NOT NULL,
+  "caseId"      TEXT        NOT NULL,
+  "name"        TEXT        NOT NULL,
+  "actorType"   "ActorType" NOT NULL,
+  "role"        TEXT,
+  "contactInfo" TEXT,
+  "createdAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "Actor_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "Actor"
+  ADD CONSTRAINT "Actor_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- ─── TimelineEvent ────────────────────────────────────────────────────────────
+
+CREATE TABLE "TimelineEvent" (
+  "id"               TEXT           NOT NULL,
+  "caseId"           TEXT           NOT NULL,
+  "issueTrackId"     TEXT,
+  "narrativeEntryId" TEXT,
+  "eventDate"        TIMESTAMPTZ,
+  "eventDateRaw"     TEXT,
+  "description"      TEXT           NOT NULL,
+  "actorNames"       TEXT,
+  "documentRef"      TEXT,
+  "entrySource"      "EventSource"  NOT NULL DEFAULT 'USER_ENTERED',
+  "createdAt"        TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "TimelineEvent_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "TimelineEvent"
+  ADD CONSTRAINT "TimelineEvent_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "TimelineEvent"
+  ADD CONSTRAINT "TimelineEvent_issueTrackId_fkey"
+  FOREIGN KEY ("issueTrackId") REFERENCES "IssueTrack"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "TimelineEvent"
+  ADD CONSTRAINT "TimelineEvent_narrativeEntryId_fkey"
+  FOREIGN KEY ("narrativeEntryId") REFERENCES "NarrativeEntry"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- ─── Claim ────────────────────────────────────────────────────────────────────
+
+CREATE TABLE "Claim" (
+  "id"                 TEXT          NOT NULL,
+  "caseId"             TEXT          NOT NULL,
+  "issueTrackId"       TEXT,
+  "narrativeEntryId"   TEXT,
+  "claimText"          TEXT          NOT NULL,
+  "enteredAt"          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  "verificationStatus" "VerifStatus" NOT NULL DEFAULT 'UNVERIFIED',
+  "sourceUrl"          TEXT,
+  "sourceTitle"        TEXT,
+  "sourceTextHash"     TEXT,
+  "verifiedAt"         TIMESTAMPTZ,
+  "verifiedBy"         TEXT,
+  "priorClaimId"       TEXT,
+
+  CONSTRAINT "Claim_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "Claim"
+  ADD CONSTRAINT "Claim_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "Claim"
+  ADD CONSTRAINT "Claim_issueTrackId_fkey"
+  FOREIGN KEY ("issueTrackId") REFERENCES "IssueTrack"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "Claim"
+  ADD CONSTRAINT "Claim_narrativeEntryId_fkey"
+  FOREIGN KEY ("narrativeEntryId") REFERENCES "NarrativeEntry"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- ─── CaseDocument ─────────────────────────────────────────────────────────────
+
+CREATE TABLE "CaseDocument" (
+  "id"           TEXT        NOT NULL,
+  "caseId"       TEXT        NOT NULL,
+  "filename"     TEXT        NOT NULL,
+  "mimeType"     TEXT        NOT NULL,
+  "storageUri"   TEXT        NOT NULL,
+  "fileHash"     TEXT        NOT NULL,
+  "uploadedAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "uploadedBy"   TEXT        NOT NULL,
+  "description"  TEXT,
+  "exhibitLabel" TEXT,
+
+  CONSTRAINT "CaseDocument_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "CaseDocument"
+  ADD CONSTRAINT "CaseDocument_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
 -- ─── VerificationEvent ────────────────────────────────────────────────────────
+-- Immutable event log shared by STAND platform and VROS field visits.
+-- eventType values (platform): fact_statement_drafted | claim_logged |
+--   source_retrieved | form_check_run | exhibit_cross_referenced | finalized |
+--   output_generated | upl_checkpoint_triggered
+-- eventType values (field): arrival | photo_captured | affidavit_executed |
+--   report_exported | custody_accepted | destination_reached | custody_transferred
 
 CREATE TABLE "VerificationEvent" (
-  "id"           TEXT          NOT NULL,
+  "id"           TEXT        NOT NULL,
   "caseId"       TEXT,
+  "claimId"      TEXT,
   "fieldJobId"   TEXT,
-  "actorId"      TEXT          NOT NULL,
-  "roleType"     TEXT          NOT NULL,
-  "eventType"    "EventType"   NOT NULL,
-  "payloadType"  TEXT          NOT NULL,
+  "actorId"      TEXT        NOT NULL,
+  "roleType"     TEXT        NOT NULL,
+  "eventType"    TEXT        NOT NULL,
+  "payloadType"  TEXT        NOT NULL,
   "payloadRef"   TEXT,
-  "timestamp"    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  "timestamp"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   "geoLat"       DOUBLE PRECISION,
   "geoLng"       DOUBLE PRECISION,
   "evidenceUri"  TEXT,
   "notes"        TEXT,
   "priorEventId" TEXT,
   "evidenceHash" TEXT,
-
-  -- source_retrieved structured fields
-  "sourceUrl"        TEXT,
-  "sourceTitle"      TEXT,
-  "sourceTextHash"   TEXT,
-  "verifiedDate"     TIMESTAMPTZ,
-
-  -- result_displayed structured field
-  "verificationStatus" "VerificationStatus",
-
-  -- Evidence-grammar tag (required on every event with user-facing text)
-  "origin" "ContentOrigin",
+  "verifiedBy"   TEXT,
 
   CONSTRAINT "VerificationEvent_pkey" PRIMARY KEY ("id")
 );
@@ -131,42 +261,114 @@ ALTER TABLE "VerificationEvent"
   ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE "VerificationEvent"
+  ADD CONSTRAINT "VerificationEvent_claimId_fkey"
+  FOREIGN KEY ("claimId") REFERENCES "Claim"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "VerificationEvent"
   ADD CONSTRAINT "VerificationEvent_fieldJobId_fkey"
   FOREIGN KEY ("fieldJobId") REFERENCES "FieldJob"("id")
   ON DELETE SET NULL ON UPDATE CASCADE;
 
+-- ─── Output ───────────────────────────────────────────────────────────────────
+
+CREATE TABLE "Output" (
+  "id"                  TEXT           NOT NULL,
+  "caseId"              TEXT           NOT NULL,
+  "outputType"          "OutputType"   NOT NULL,
+  "generatedAt"         TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+  "generatedBy"         TEXT           NOT NULL,
+  "snapshotHash"        TEXT           NOT NULL,
+  "storageUri"          TEXT,
+  "accessLevel"         "AccessLevel"  NOT NULL DEFAULT 'AUTHORIZED_FULL',
+  "publicMetadataToken" TEXT,
+  "tokenExpiresAt"      TIMESTAMPTZ,
+
+  CONSTRAINT "Output_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "Output"
+  ADD CONSTRAINT "Output_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- ─── FieldJob ─────────────────────────────────────────────────────────────────
+
+CREATE TABLE "FieldJob" (
+  "id"                   TEXT          NOT NULL,
+  "caseId"               TEXT,
+  "assignmentNumber"     TEXT          NOT NULL,
+  "serviceType"          "ServiceType" NOT NULL,
+  "clientName"           TEXT          NOT NULL,
+  "location"             TEXT          NOT NULL,
+  "scheduledWindowStart" TIMESTAMPTZ,
+  "scheduledWindowEnd"   TIMESTAMPTZ,
+  "status"               "JobStatus"   NOT NULL DEFAULT 'SCHEDULED',
+  "feeQuoted"            DECIMAL(65,30),
+  "feeCollected"         DECIMAL(65,30),
+  "createdAt"            TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "FieldJob_pkey"             PRIMARY KEY ("id"),
+  CONSTRAINT "FieldJob_assignmentNumber" UNIQUE ("assignmentNumber")
+);
+
+ALTER TABLE "FieldJob"
+  ADD CONSTRAINT "FieldJob_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- ─── ContractorProfile ────────────────────────────────────────────────────────
+
+CREATE TABLE "ContractorProfile" (
+  "id"              TEXT        NOT NULL,
+  "legalName"       TEXT        NOT NULL,
+  "idVerified"      BOOLEAN     NOT NULL DEFAULT FALSE,
+  "ageVerified"     BOOLEAN     NOT NULL DEFAULT FALSE,
+  "agreementSigned" BOOLEAN     NOT NULL DEFAULT FALSE,
+  "agreementDate"   TIMESTAMPTZ,
+  "createdAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "ContractorProfile_pkey" PRIMARY KEY ("id")
+);
+
 -- ─── RuleSource ───────────────────────────────────────────────────────────────
 
 CREATE TABLE "RuleSource" (
-  "id"               TEXT             NOT NULL,
-  "jurisdiction"     TEXT             NOT NULL,
-  "topic"            TEXT             NOT NULL,
-  "sourceType"       "RuleSourceType" NOT NULL,
-  "exactText"        TEXT             NOT NULL,
-  "sourceUrl"        TEXT             NOT NULL,
-  "lastVerifiedDate" TIMESTAMPTZ      NOT NULL,
-  -- Signed verification log per Bible §5: "Last verified by [initials], [date], confirmed against [URL]"
+  "id"               TEXT               NOT NULL,
+  "jurisdiction"     TEXT               NOT NULL,
+  "topic"            TEXT               NOT NULL,
+  "sourceType"       "RuleSourceType"   NOT NULL,
+  "exactText"        TEXT               NOT NULL,
+  "sourceUrl"        TEXT               NOT NULL,
+  "lastVerifiedDate" TIMESTAMPTZ        NOT NULL,
   "verifiedBy"       TEXT,
-  "staleAfterDays"   INTEGER          NOT NULL DEFAULT 45,
-  "createdAt"        TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
-  "updatedAt"        TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+  "staleAfterDays"   INTEGER            NOT NULL DEFAULT 45,
+  "createdAt"        TIMESTAMPTZ        NOT NULL DEFAULT NOW(),
+  "updatedAt"        TIMESTAMPTZ        NOT NULL DEFAULT NOW(),
 
   CONSTRAINT "RuleSource_pkey" PRIMARY KEY ("id")
 );
 
--- ─── Useful indexes ──────────────────────────────────────────────────────────
+-- ─── Indexes ─────────────────────────────────────────────────────────────────
 
-CREATE INDEX "VerificationEvent_caseId_timestamp_idx"
-  ON "VerificationEvent"("caseId", "timestamp");
+CREATE INDEX "UserSession_userId_idx"                  ON "UserSession"("userId");
+CREATE INDEX "Case_userId_idx"                         ON "Case"("userId");
+CREATE INDEX "NarrativeEntry_caseId_idx"               ON "NarrativeEntry"("caseId");
+CREATE INDEX "IssueTrack_caseId_idx"                   ON "IssueTrack"("caseId");
+CREATE INDEX "Actor_caseId_idx"                        ON "Actor"("caseId");
+CREATE INDEX "TimelineEvent_caseId_eventDate_idx"      ON "TimelineEvent"("caseId", "eventDate");
+CREATE INDEX "TimelineEvent_issueTrackId_idx"          ON "TimelineEvent"("issueTrackId");
+CREATE INDEX "Claim_caseId_idx"                        ON "Claim"("caseId");
+CREATE INDEX "Claim_issueTrackId_idx"                  ON "Claim"("issueTrackId");
+CREATE INDEX "CaseDocument_caseId_idx"                 ON "CaseDocument"("caseId");
+CREATE INDEX "VerificationEvent_caseId_timestamp_idx"  ON "VerificationEvent"("caseId", "timestamp");
+CREATE INDEX "VerificationEvent_claimId_idx"           ON "VerificationEvent"("claimId");
+CREATE INDEX "VerificationEvent_fieldJobId_idx"        ON "VerificationEvent"("fieldJobId");
+CREATE INDEX "Output_caseId_idx"                       ON "Output"("caseId");
+CREATE INDEX "RuleSource_jurisdiction_topic_idx"       ON "RuleSource"("jurisdiction", "topic");
 
-CREATE INDEX "VerificationEvent_fieldJobId_idx"
-  ON "VerificationEvent"("fieldJobId");
-
-CREATE INDEX "RuleSource_jurisdiction_topic_idx"
-  ON "RuleSource"("jurisdiction", "topic");
-
--- ─── RuleSource seed data (mirrors prisma/seed.ts) ───────────────────────────
--- Run after table creation. ON CONFLICT DO NOTHING is safe to re-run.
+-- ─── RuleSource seed data ─────────────────────────────────────────────────────
+-- ON CONFLICT DO NOTHING is safe to re-run.
 
 INSERT INTO "RuleSource" ("id","jurisdiction","topic","sourceType","exactText","sourceUrl","lastVerifiedDate","verifiedBy","staleAfterDays","createdAt","updatedAt")
 VALUES
@@ -260,203 +462,10 @@ VALUES
  'https://www.michigan.gov/uia/employers/new-employer-resources',
  '2026-07-01',NULL,45,NOW(),NOW()),
 
--- HIGH VOLATILITY — staleAfterDays: 30 (monthly recheck per brief)
+-- HIGH VOLATILITY — staleAfterDays: 30 (monthly recheck)
 ('seed-018','federal','beneficial ownership information boi fincen corporate transparency act domestic exemption','statute',
  'Under the Corporate Transparency Act (31 U.S.C. § 5336) and FinCEN''s implementing regulations, an interim final rule effective March 21, 2025 exempts domestic entities — including domestic corporations, LLCs, and other entities created by filing with a U.S. state or tribal government — from Beneficial Ownership Information (BOI) reporting requirements. As of this entry''s verified date, only foreign entities registering to do business in the United States are required to file BOI reports with FinCEN. IMPORTANT: This exemption has changed multiple times since 2024. A final FinCEN rulemaking is expected in 2026 that could reinstate the domestic filing requirement with little advance notice. Domestic entities should monitor FinCEN.gov for any changes. This entry is rechecked monthly due to high regulatory volatility.',
  'https://www.fincen.gov/boi',
  '2026-07-01',NULL,30,NOW(),NOW())
 
 ON CONFLICT ("id") DO NOTHING;
-
--- ─── Case graph expansion ─────────────────────────────────────────────────────
--- NarrativeEntry, IssueTrack, Actor, TimelineEvent, Claim, Document, Output
--- Run this block after the tables above exist.
-
-CREATE TYPE "ExtractionStatus" AS ENUM ('PENDING', 'PROCESSED', 'FLAGGED');
-CREATE TYPE "TrackType" AS ENUM (
-  'HOUSING', 'SECURITY_DEPOSIT', 'FORECLOSURE', 'DEBT_COLLECTION',
-  'CONSUMER_BILLING', 'UTILITY', 'FOIA', 'BUSINESS_FORMATION',
-  'CUSTODY', 'EMPLOYMENT_PAYROLL', 'VEHICLE_DISPUTE', 'CIVIL_OTHER'
-);
-CREATE TYPE "IssueStatus" AS ENUM ('ACTIVE', 'RESOLVED', 'MONITORING');
-CREATE TYPE "OutputType" AS ENUM ('LEGAL_PACKET', 'IOAP', 'ATTORNEY_HANDOFF', 'SESSION_BRIEF');
-CREATE TYPE "AccessLevel" AS ENUM ('PUBLIC_METADATA', 'AUTHORIZED_FULL');
-
--- Raw text exactly as the user typed it. rawText is never modified after write.
-CREATE TABLE "NarrativeEntry" (
-  "id"               TEXT               NOT NULL,
-  "caseId"           TEXT               NOT NULL,
-  "rawText"          TEXT               NOT NULL,
-  "enteredAt"        TIMESTAMPTZ        NOT NULL DEFAULT NOW(),
-  "sessionId"        TEXT,
-  "extractionStatus" "ExtractionStatus" NOT NULL DEFAULT 'PENDING',
-
-  CONSTRAINT "NarrativeEntry_pkey" PRIMARY KEY ("id")
-);
-
-ALTER TABLE "NarrativeEntry"
-  ADD CONSTRAINT "NarrativeEntry_caseId_fkey"
-  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
-
--- One row per legal issue classified after intake. A single Case can have multiple.
-CREATE TABLE "IssueTrack" (
-  "id"              TEXT          NOT NULL,
-  "caseId"          TEXT          NOT NULL,
-  "trackType"       "TrackType"   NOT NULL,
-  "status"          "IssueStatus" NOT NULL DEFAULT 'ACTIVE',
-  "urgencySignal"   BOOLEAN       NOT NULL DEFAULT FALSE,
-  "extractedFromId" TEXT,
-  "createdAt"       TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-
-  CONSTRAINT "IssueTrack_pkey" PRIMARY KEY ("id")
-);
-
-ALTER TABLE "IssueTrack"
-  ADD CONSTRAINT "IssueTrack_caseId_fkey"
-  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
-
-ALTER TABLE "IssueTrack"
-  ADD CONSTRAINT "IssueTrack_extractedFromId_fkey"
-  FOREIGN KEY ("extractedFromId") REFERENCES "NarrativeEntry"("id")
-  ON DELETE SET NULL ON UPDATE CASCADE;
-
--- People, agencies, and institutions named in the narrative.
-CREATE TABLE "Actor" (
-  "id"          TEXT        NOT NULL,
-  "caseId"      TEXT        NOT NULL,
-  "name"        TEXT        NOT NULL,
-  "role"        TEXT        NOT NULL,
-  "contactInfo" TEXT,
-  "createdAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-  CONSTRAINT "Actor_pkey" PRIMARY KEY ("id")
-);
-
-ALTER TABLE "Actor"
-  ADD CONSTRAINT "Actor_caseId_fkey"
-  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
-
--- Structured events extracted from the narrative — what happened in the world.
--- Distinct from VerificationEvent (what STAND/VROS did in response).
-CREATE TABLE "TimelineEvent" (
-  "id"               TEXT             NOT NULL,
-  "caseId"           TEXT             NOT NULL,
-  "occurredAt"       TIMESTAMPTZ      NOT NULL,
-  "label"            TEXT             NOT NULL,
-  "origin"           "ContentOrigin"  NOT NULL,
-  "narrativeEntryId" TEXT,
-  "actorId"          TEXT,
-  "createdAt"        TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
-
-  CONSTRAINT "TimelineEvent_pkey" PRIMARY KEY ("id")
-);
-
-ALTER TABLE "TimelineEvent"
-  ADD CONSTRAINT "TimelineEvent_caseId_fkey"
-  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
-
-ALTER TABLE "TimelineEvent"
-  ADD CONSTRAINT "TimelineEvent_narrativeEntryId_fkey"
-  FOREIGN KEY ("narrativeEntryId") REFERENCES "NarrativeEntry"("id")
-  ON DELETE SET NULL ON UPDATE CASCADE;
-
-ALTER TABLE "TimelineEvent"
-  ADD CONSTRAINT "TimelineEvent_actorId_fkey"
-  FOREIGN KEY ("actorId") REFERENCES "Actor"("id")
-  ON DELETE SET NULL ON UPDATE CASCADE;
-
--- Specific factual assertions the user wants verified. One assertion per row.
-CREATE TABLE "Claim" (
-  "id"                 TEXT                  NOT NULL,
-  "caseId"             TEXT                  NOT NULL,
-  "issueTrackId"       TEXT,
-  "timelineEventId"    TEXT,
-  "statement"          TEXT                  NOT NULL,
-  "verificationStatus" "VerificationStatus"  NOT NULL DEFAULT 'cannot_verify',
-  "ruleSourceId"       TEXT,
-  "checkedAt"          TIMESTAMPTZ,
-  "origin"             "ContentOrigin"       NOT NULL,
-  "createdAt"          TIMESTAMPTZ           NOT NULL DEFAULT NOW(),
-  "updatedAt"          TIMESTAMPTZ           NOT NULL DEFAULT NOW(),
-
-  CONSTRAINT "Claim_pkey" PRIMARY KEY ("id")
-);
-
-ALTER TABLE "Claim"
-  ADD CONSTRAINT "Claim_caseId_fkey"
-  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
-
-ALTER TABLE "Claim"
-  ADD CONSTRAINT "Claim_issueTrackId_fkey"
-  FOREIGN KEY ("issueTrackId") REFERENCES "IssueTrack"("id")
-  ON DELETE SET NULL ON UPDATE CASCADE;
-
-ALTER TABLE "Claim"
-  ADD CONSTRAINT "Claim_timelineEventId_fkey"
-  FOREIGN KEY ("timelineEventId") REFERENCES "TimelineEvent"("id")
-  ON DELETE SET NULL ON UPDATE CASCADE;
-
--- Uploaded files. hash is SHA-256 hex, computed at write time, never updated.
-CREATE TABLE "Document" (
-  "id"              TEXT        NOT NULL,
-  "caseId"          TEXT        NOT NULL,
-  "filename"        TEXT        NOT NULL,
-  "mimeType"        TEXT        NOT NULL,
-  "storageUri"      TEXT        NOT NULL,
-  "hash"            TEXT        NOT NULL,
-  "claimId"         TEXT,
-  "timelineEventId" TEXT,
-  "uploadedAt"      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-  CONSTRAINT "Document_pkey" PRIMARY KEY ("id")
-);
-
-ALTER TABLE "Document"
-  ADD CONSTRAINT "Document_caseId_fkey"
-  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
-
-ALTER TABLE "Document"
-  ADD CONSTRAINT "Document_claimId_fkey"
-  FOREIGN KEY ("claimId") REFERENCES "Claim"("id")
-  ON DELETE SET NULL ON UPDATE CASCADE;
-
-ALTER TABLE "Document"
-  ADD CONSTRAINT "Document_timelineEventId_fkey"
-  FOREIGN KEY ("timelineEventId") REFERENCES "TimelineEvent"("id")
-  ON DELETE SET NULL ON UPDATE CASCADE;
-
--- Packets and documents generated from this Case.
-CREATE TABLE "Output" (
-  "id"                 TEXT           NOT NULL,
-  "caseId"             TEXT           NOT NULL,
-  "outputType"         "OutputType"   NOT NULL,
-  "generatedAt"        TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
-  "generatedBy"        TEXT           NOT NULL,
-  "snapshotHash"       TEXT,
-  "accessLevel"        "AccessLevel"  NOT NULL DEFAULT 'PUBLIC_METADATA',
-  "tokenizedAccessUrl" TEXT,
-
-  CONSTRAINT "Output_pkey" PRIMARY KEY ("id")
-);
-
-ALTER TABLE "Output"
-  ADD CONSTRAINT "Output_caseId_fkey"
-  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
-
--- ─── Indexes for case graph ───────────────────────────────────────────────────
-
-CREATE INDEX "NarrativeEntry_caseId_idx" ON "NarrativeEntry"("caseId");
-CREATE INDEX "IssueTrack_caseId_idx" ON "IssueTrack"("caseId");
-CREATE INDEX "Actor_caseId_idx" ON "Actor"("caseId");
-CREATE INDEX "TimelineEvent_caseId_occurredAt_idx" ON "TimelineEvent"("caseId", "occurredAt");
-CREATE INDEX "Claim_caseId_idx" ON "Claim"("caseId");
-CREATE INDEX "Claim_issueTrackId_idx" ON "Claim"("issueTrackId");
-CREATE INDEX "Document_caseId_idx" ON "Document"("caseId");
-CREATE INDEX "Output_caseId_idx" ON "Output"("caseId");
