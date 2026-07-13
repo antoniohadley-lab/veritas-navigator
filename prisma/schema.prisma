@@ -20,8 +20,15 @@ model Case {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  fieldJobs FieldJob[]
-  events    VerificationEvent[]
+  fieldJobs        FieldJob[]
+  events           VerificationEvent[]
+  narrativeEntries NarrativeEntry[]
+  issueTracks      IssueTrack[]
+  actors           Actor[]
+  timelineEvents   TimelineEvent[]
+  claims           Claim[]
+  documents        Document[]
+  outputs          Output[]
 }
 
 enum CaseType {
@@ -175,4 +182,150 @@ enum RuleSourceType {
   court_rule
   official_form
   administrative_rule
+}
+
+// ─── NarrativeEntry ──────────────────────────────────────────────────────────
+// Raw text verbatim, exactly as the user typed it. Never edited, never paraphrased.
+// All structured extractions (TimelineEvents, Actors, Claims) trace back here.
+
+model NarrativeEntry {
+  id        String   @id @default(cuid())
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id])
+  text      String
+  createdAt DateTime @default(now())
+
+  timelineEvents TimelineEvent[]
+}
+
+// ─── IssueTrack ───────────────────────────────────────────────────────────────
+// One row per legal issue identified in the Case, classified after intake.
+// A single Case can produce multiple IssueTracks (e.g. nonpayment + security deposit).
+
+model IssueTrack {
+  id           String      @id @default(cuid())
+  caseId       String
+  case         Case        @relation(fields: [caseId], references: [id])
+  category     String      // "housing_eviction" | "security_deposit" | "foia" | ...
+  subcategory  String?
+  status       IssueStatus @default(OPEN)
+  classifiedBy String      // "system" or the actorId of the human reviewer
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  claims Claim[]
+}
+
+enum IssueStatus {
+  OPEN
+  RESOLVED
+  ESCALATED
+  CLOSED
+}
+
+// ─── Actor ────────────────────────────────────────────────────────────────────
+// People, agencies, and institutions named in the narrative.
+
+model Actor {
+  id          String   @id @default(cuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id])
+  name        String
+  role        String   // "landlord" | "tenant" | "court" | "agency" | "creditor" | ...
+  contactInfo String?
+  createdAt   DateTime @default(now())
+
+  timelineEvents TimelineEvent[]
+}
+
+// ─── TimelineEvent ────────────────────────────────────────────────────────────
+// Structured events extracted from the narrative, ordered by when they occurred in the world.
+// Distinct from VerificationEvent: TimelineEvents record what happened to the user;
+// VerificationEvents record what STAND/VROS did in response.
+
+model TimelineEvent {
+  id               String          @id @default(cuid())
+  caseId           String
+  case             Case            @relation(fields: [caseId], references: [id])
+  occurredAt       DateTime
+  label            String          // "Landlord sent written notice"
+  origin           ContentOrigin
+  narrativeEntryId String?
+  narrativeEntry   NarrativeEntry? @relation(fields: [narrativeEntryId], references: [id])
+  actorId          String?
+  actor            Actor?          @relation(fields: [actorId], references: [id])
+  createdAt        DateTime        @default(now())
+
+  claims    Claim[]
+  documents Document[]
+}
+
+// ─── Claim ────────────────────────────────────────────────────────────────────
+// A specific factual assertion the user wants verified against the Rule Store.
+// One Claim per assertion — never bundle multiple facts into one row.
+
+model Claim {
+  id                 String             @id @default(cuid())
+  caseId             String
+  case               Case               @relation(fields: [caseId], references: [id])
+  issueTrackId       String?
+  issueTrack         IssueTrack?        @relation(fields: [issueTrackId], references: [id])
+  timelineEventId    String?
+  timelineEvent      TimelineEvent?     @relation(fields: [timelineEventId], references: [id])
+  statement          String             // the factual assertion, exactly as stated
+  verificationStatus VerificationStatus @default(cannot_verify)
+  ruleSourceId       String?
+  checkedAt          DateTime?
+  origin             ContentOrigin
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  documents Document[]
+}
+
+// ─── Document ─────────────────────────────────────────────────────────────────
+// Uploaded files. hash is SHA-256 hex computed at write time, never updated.
+
+model Document {
+  id              String         @id @default(cuid())
+  caseId          String
+  case            Case           @relation(fields: [caseId], references: [id])
+  filename        String
+  mimeType        String
+  storageUri      String
+  hash            String
+  claimId         String?
+  claim           Claim?         @relation(fields: [claimId], references: [id])
+  timelineEventId String?
+  timelineEvent   TimelineEvent? @relation(fields: [timelineEventId], references: [id])
+  uploadedAt      DateTime       @default(now())
+}
+
+// ─── Output ───────────────────────────────────────────────────────────────────
+// Records every packet or document generated from this Case.
+// Factual Packet generation writes one Output row + one VerificationEvent(report_exported).
+
+model Output {
+  id              String         @id @default(cuid())
+  caseId          String
+  case            Case           @relation(fields: [caseId], references: [id])
+  outputType      OutputType
+  generatedAt     DateTime       @default(now())
+  deliveryStatus  DeliveryStatus @default(GENERATED)
+  stripePaymentId String?
+  packetId        String?        // matches coverPage.packetId in factual-packet.ts
+  contentsRef     String?        // storage URI to the generated file
+}
+
+enum OutputType {
+  FACTUAL_PACKET
+  AFFIDAVIT_DRAFT
+  FORM_PREFILL
+  SUMMARY
+}
+
+enum DeliveryStatus {
+  GENERATED
+  DELIVERED
+  ARCHIVED
 }

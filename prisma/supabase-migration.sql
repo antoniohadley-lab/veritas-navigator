@@ -267,3 +267,184 @@ VALUES
  '2026-07-01',NULL,30,NOW(),NOW())
 
 ON CONFLICT ("id") DO NOTHING;
+
+-- ─── Case graph expansion ─────────────────────────────────────────────────────
+-- NarrativeEntry, IssueTrack, Actor, TimelineEvent, Claim, Document, Output
+-- Run this block after the tables above exist.
+
+CREATE TYPE "IssueStatus" AS ENUM ('OPEN', 'RESOLVED', 'ESCALATED', 'CLOSED');
+CREATE TYPE "OutputType" AS ENUM ('FACTUAL_PACKET', 'AFFIDAVIT_DRAFT', 'FORM_PREFILL', 'SUMMARY');
+CREATE TYPE "DeliveryStatus" AS ENUM ('GENERATED', 'DELIVERED', 'ARCHIVED');
+
+-- Raw text verbatim, exactly as typed. Never edited, never paraphrased.
+CREATE TABLE "NarrativeEntry" (
+  "id"        TEXT        NOT NULL,
+  "caseId"    TEXT        NOT NULL,
+  "text"      TEXT        NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "NarrativeEntry_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "NarrativeEntry"
+  ADD CONSTRAINT "NarrativeEntry_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- One row per legal issue classified after intake. A single Case can have multiple.
+CREATE TABLE "IssueTrack" (
+  "id"           TEXT          NOT NULL,
+  "caseId"       TEXT          NOT NULL,
+  "category"     TEXT          NOT NULL,
+  "subcategory"  TEXT,
+  "status"       "IssueStatus" NOT NULL DEFAULT 'OPEN',
+  "classifiedBy" TEXT          NOT NULL,
+  "createdAt"    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  "updatedAt"    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "IssueTrack_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "IssueTrack"
+  ADD CONSTRAINT "IssueTrack_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- People, agencies, and institutions named in the narrative.
+CREATE TABLE "Actor" (
+  "id"          TEXT        NOT NULL,
+  "caseId"      TEXT        NOT NULL,
+  "name"        TEXT        NOT NULL,
+  "role"        TEXT        NOT NULL,
+  "contactInfo" TEXT,
+  "createdAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "Actor_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "Actor"
+  ADD CONSTRAINT "Actor_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Structured events extracted from the narrative — what happened in the world.
+-- Distinct from VerificationEvent (what STAND/VROS did in response).
+CREATE TABLE "TimelineEvent" (
+  "id"               TEXT             NOT NULL,
+  "caseId"           TEXT             NOT NULL,
+  "occurredAt"       TIMESTAMPTZ      NOT NULL,
+  "label"            TEXT             NOT NULL,
+  "origin"           "ContentOrigin"  NOT NULL,
+  "narrativeEntryId" TEXT,
+  "actorId"          TEXT,
+  "createdAt"        TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "TimelineEvent_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "TimelineEvent"
+  ADD CONSTRAINT "TimelineEvent_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "TimelineEvent"
+  ADD CONSTRAINT "TimelineEvent_narrativeEntryId_fkey"
+  FOREIGN KEY ("narrativeEntryId") REFERENCES "NarrativeEntry"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "TimelineEvent"
+  ADD CONSTRAINT "TimelineEvent_actorId_fkey"
+  FOREIGN KEY ("actorId") REFERENCES "Actor"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- Specific factual assertions the user wants verified. One assertion per row.
+CREATE TABLE "Claim" (
+  "id"                 TEXT                  NOT NULL,
+  "caseId"             TEXT                  NOT NULL,
+  "issueTrackId"       TEXT,
+  "timelineEventId"    TEXT,
+  "statement"          TEXT                  NOT NULL,
+  "verificationStatus" "VerificationStatus"  NOT NULL DEFAULT 'cannot_verify',
+  "ruleSourceId"       TEXT,
+  "checkedAt"          TIMESTAMPTZ,
+  "origin"             "ContentOrigin"       NOT NULL,
+  "createdAt"          TIMESTAMPTZ           NOT NULL DEFAULT NOW(),
+  "updatedAt"          TIMESTAMPTZ           NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "Claim_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "Claim"
+  ADD CONSTRAINT "Claim_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "Claim"
+  ADD CONSTRAINT "Claim_issueTrackId_fkey"
+  FOREIGN KEY ("issueTrackId") REFERENCES "IssueTrack"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "Claim"
+  ADD CONSTRAINT "Claim_timelineEventId_fkey"
+  FOREIGN KEY ("timelineEventId") REFERENCES "TimelineEvent"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- Uploaded files. hash is SHA-256 hex, computed at write time, never updated.
+CREATE TABLE "Document" (
+  "id"              TEXT        NOT NULL,
+  "caseId"          TEXT        NOT NULL,
+  "filename"        TEXT        NOT NULL,
+  "mimeType"        TEXT        NOT NULL,
+  "storageUri"      TEXT        NOT NULL,
+  "hash"            TEXT        NOT NULL,
+  "claimId"         TEXT,
+  "timelineEventId" TEXT,
+  "uploadedAt"      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "Document_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "Document"
+  ADD CONSTRAINT "Document_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "Document"
+  ADD CONSTRAINT "Document_claimId_fkey"
+  FOREIGN KEY ("claimId") REFERENCES "Claim"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE "Document"
+  ADD CONSTRAINT "Document_timelineEventId_fkey"
+  FOREIGN KEY ("timelineEventId") REFERENCES "TimelineEvent"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- Packets and documents generated from this Case.
+CREATE TABLE "Output" (
+  "id"              TEXT             NOT NULL,
+  "caseId"          TEXT             NOT NULL,
+  "outputType"      "OutputType"     NOT NULL,
+  "generatedAt"     TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+  "deliveryStatus"  "DeliveryStatus" NOT NULL DEFAULT 'GENERATED',
+  "stripePaymentId" TEXT,
+  "packetId"        TEXT,
+  "contentsRef"     TEXT,
+
+  CONSTRAINT "Output_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "Output"
+  ADD CONSTRAINT "Output_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- ─── Indexes for case graph ───────────────────────────────────────────────────
+
+CREATE INDEX "NarrativeEntry_caseId_idx" ON "NarrativeEntry"("caseId");
+CREATE INDEX "IssueTrack_caseId_idx" ON "IssueTrack"("caseId");
+CREATE INDEX "Actor_caseId_idx" ON "Actor"("caseId");
+CREATE INDEX "TimelineEvent_caseId_occurredAt_idx" ON "TimelineEvent"("caseId", "occurredAt");
+CREATE INDEX "Claim_caseId_idx" ON "Claim"("caseId");
+CREATE INDEX "Claim_issueTrackId_idx" ON "Claim"("issueTrackId");
+CREATE INDEX "Document_caseId_idx" ON "Document"("caseId");
+CREATE INDEX "Output_caseId_idx" ON "Output"("caseId");
