@@ -5,8 +5,9 @@ const engine = new NavigationEngine()
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { trackInstanceId: string } }
+  { params }: { params: Promise<{ trackInstanceId: string }> }
 ) {
-  const state = await engine.getNavigationState(params.trackInstanceId)
+  const { trackInstanceId } = await params
+  const state = await engine.getNavigationState(trackInstanceId)
   return NextResponse.json(state)
 }
