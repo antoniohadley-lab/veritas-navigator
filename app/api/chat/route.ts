@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT } from '@/lib/system-prompt';
 import { classifyInput, buildStructuredContext } from '@/lib/classifier';
+import { isAdviceRequest } from '@/lib/upl-guardrails';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -30,6 +31,12 @@ export async function POST(req: Request) {
 
     if (lastUserMsgIndex !== -1) {
       const lastUserMsg = messages[lastUserMsgIndex];
+
+      // UPL Section 6 gate: advice requests must be refused before hitting the model.
+      const adviceCheck = isAdviceRequest(lastUserMsg.content);
+      if (adviceCheck.isAdvice) {
+        return Response.json({ error: adviceCheck.redirectMessage }, { status: 400 });
+      }
 
       // Only apply classifier to substantive inputs (> 20 chars).
       // Short answers to intake questions (e.g. "my landlord", "July 5th")

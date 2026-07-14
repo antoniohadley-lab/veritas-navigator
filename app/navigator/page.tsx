@@ -154,9 +154,14 @@ export default function NavigatorPage() {
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-veritas-blue text-white px-6 py-4 shadow-md flex-shrink-0">
-        <div className="max-w-3xl mx-auto">
-          <h1 className="text-xl font-semibold tracking-tight">Veritas Navigator</h1>
-          <p className="text-blue-200 text-sm mt-0.5">Michigan Civil Dispute Navigation</p>
+        <div className="max-w-3xl mx-auto flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">STAND</h1>
+            <p className="text-blue-200 text-sm mt-0.5">Michigan Civil Dispute Navigation</p>
+          </div>
+          <nav className="flex gap-4 text-sm">
+            <a href="/pricing" className="text-blue-200 hover:text-white transition-colors">Pricing</a>
+          </nav>
         </div>
       </header>
 
