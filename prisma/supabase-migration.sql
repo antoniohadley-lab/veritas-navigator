@@ -24,6 +24,8 @@ CREATE TYPE "OutputType"        AS ENUM ('LEGAL_PACKET', 'IOAP', 'SESSION_BRIEF'
 CREATE TYPE "AccessLevel"       AS ENUM ('PUBLIC_METADATA', 'AUTHORIZED_FULL');
 CREATE TYPE "ServiceType"       AS ENUM ('NOTARY', 'PROCESS_SERVICE', 'PROPERTY_INSPECTION', 'BUSINESS_VERIFICATION', 'SPECIMEN_COURIER', 'COURT_FILING', 'OTHER');
 CREATE TYPE "JobStatus"         AS ENUM ('SCHEDULED', 'EN_ROUTE', 'ON_SITE', 'COMPLETED', 'MISSED', 'CANCELLED');
+CREATE TYPE "InstanceStatus"    AS ENUM ('ACTIVE', 'COMPLETED', 'STALLED', 'UNCERTAIN');
+CREATE TYPE "StageStatus"       AS ENUM ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'SKIPPED', 'UNCERTAIN');
 CREATE TYPE "RuleSourceType"    AS ENUM ('statute', 'court_rule', 'official_form', 'administrative_rule');
 
 -- ─── User & Session ──────────────────────────────────────────────────────────
@@ -330,6 +332,174 @@ CREATE TABLE "ContractorProfile" (
 
   CONSTRAINT "ContractorProfile_pkey" PRIMARY KEY ("id")
 );
+
+-- ─── Navigation Layer ────────────────────────────────────────────────────────
+
+CREATE TABLE "ProceduralTrackTemplate" (
+  "id"            TEXT        NOT NULL,
+  "trackType"     "TrackType" NOT NULL,
+  "matterSubtype" TEXT        NOT NULL,
+  "displayName"   TEXT        NOT NULL,
+  "jurisdiction"  TEXT        NOT NULL DEFAULT 'MICHIGAN',
+  "isActive"      BOOLEAN     NOT NULL DEFAULT TRUE,
+  "createdAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "ProceduralTrackTemplate_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "ProceduralStageTemplate" (
+  "id"                TEXT        NOT NULL,
+  "trackTemplateId"   TEXT        NOT NULL,
+  "stageName"         TEXT        NOT NULL,
+  "stageOrder"        INTEGER     NOT NULL,
+  "isOptional"        BOOLEAN     NOT NULL DEFAULT FALSE,
+  "controllingSource" TEXT        NOT NULL,
+  "controllingUrl"    TEXT,
+  "deadlineLogic"     TEXT,
+  "deadlineDays"      INTEGER,
+  "deadlineFromEvent" TEXT,
+  "uncertaintyNote"   TEXT,
+  "createdAt"         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "ProceduralStageTemplate_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "ProceduralStageTemplate"
+  ADD CONSTRAINT "ProceduralStageTemplate_trackTemplateId_fkey"
+  FOREIGN KEY ("trackTemplateId") REFERENCES "ProceduralTrackTemplate"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE TABLE "RequiredDocumentTemplate" (
+  "id"              TEXT    NOT NULL,
+  "stageTemplateId" TEXT    NOT NULL,
+  "documentName"    TEXT    NOT NULL,
+  "isRequired"      BOOLEAN NOT NULL DEFAULT TRUE,
+  "sourceReference" TEXT,
+  "notes"           TEXT,
+
+  CONSTRAINT "RequiredDocumentTemplate_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "RequiredDocumentTemplate"
+  ADD CONSTRAINT "RequiredDocumentTemplate_stageTemplateId_fkey"
+  FOREIGN KEY ("stageTemplateId") REFERENCES "ProceduralStageTemplate"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE TABLE "ProceduralTransition" (
+  "id"          TEXT    NOT NULL,
+  "fromStageId" TEXT    NOT NULL,
+  "toStageId"   TEXT    NOT NULL,
+  "condition"   TEXT,
+  "isDefault"   BOOLEAN NOT NULL DEFAULT FALSE,
+  "isBranch"    BOOLEAN NOT NULL DEFAULT FALSE,
+  "branchLabel" TEXT,
+
+  CONSTRAINT "ProceduralTransition_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "ProceduralTransition"
+  ADD CONSTRAINT "ProceduralTransition_fromStageId_fkey"
+  FOREIGN KEY ("fromStageId") REFERENCES "ProceduralStageTemplate"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "ProceduralTransition"
+  ADD CONSTRAINT "ProceduralTransition_toStageId_fkey"
+  FOREIGN KEY ("toStageId") REFERENCES "ProceduralStageTemplate"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE TABLE "MatterTrackInstance" (
+  "id"             TEXT             NOT NULL,
+  "caseId"         TEXT             NOT NULL,
+  "issueTrackId"   TEXT             NOT NULL,
+  "templateId"     TEXT             NOT NULL,
+  "currentStageId" TEXT,
+  "status"         "InstanceStatus" NOT NULL DEFAULT 'ACTIVE',
+  "createdAt"      TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+  "updatedAt"      TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "MatterTrackInstance_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "MatterTrackInstance"
+  ADD CONSTRAINT "MatterTrackInstance_caseId_fkey"
+  FOREIGN KEY ("caseId") REFERENCES "Case"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "MatterTrackInstance"
+  ADD CONSTRAINT "MatterTrackInstance_issueTrackId_fkey"
+  FOREIGN KEY ("issueTrackId") REFERENCES "IssueTrack"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "MatterTrackInstance"
+  ADD CONSTRAINT "MatterTrackInstance_templateId_fkey"
+  FOREIGN KEY ("templateId") REFERENCES "ProceduralTrackTemplate"("id")
+  ON DELETE RESTRICT ON UPDATE CASCADE;
+
+CREATE TABLE "MatterStageInstance" (
+  "id"              TEXT          NOT NULL,
+  "trackInstanceId" TEXT          NOT NULL,
+  "stageTemplateId" TEXT          NOT NULL,
+  "status"          "StageStatus" NOT NULL DEFAULT 'NOT_STARTED',
+  "startedAt"       TIMESTAMPTZ,
+  "completedAt"     TIMESTAMPTZ,
+  "deadlineDate"    TIMESTAMPTZ,
+  "notes"           TEXT,
+
+  CONSTRAINT "MatterStageInstance_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "MatterStageInstance"
+  ADD CONSTRAINT "MatterStageInstance_trackInstanceId_fkey"
+  FOREIGN KEY ("trackInstanceId") REFERENCES "MatterTrackInstance"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "MatterStageInstance"
+  ADD CONSTRAINT "MatterStageInstance_stageTemplateId_fkey"
+  FOREIGN KEY ("stageTemplateId") REFERENCES "ProceduralStageTemplate"("id")
+  ON DELETE RESTRICT ON UPDATE CASCADE;
+
+CREATE TABLE "MissingInfoFlag" (
+  "id"              TEXT        NOT NULL,
+  "trackInstanceId" TEXT        NOT NULL,
+  "question"        TEXT        NOT NULL,
+  "whyItMatters"    TEXT        NOT NULL,
+  "resolved"        BOOLEAN     NOT NULL DEFAULT FALSE,
+  "resolvedAt"      TIMESTAMPTZ,
+  "createdAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "MissingInfoFlag_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "MissingInfoFlag"
+  ADD CONSTRAINT "MissingInfoFlag_trackInstanceId_fkey"
+  FOREIGN KEY ("trackInstanceId") REFERENCES "MatterTrackInstance"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE TABLE "NextAction" (
+  "id"              TEXT        NOT NULL,
+  "trackInstanceId" TEXT        NOT NULL,
+  "actionText"      TEXT        NOT NULL,
+  "sourceReference" TEXT,
+  "priority"        INTEGER     NOT NULL DEFAULT 1,
+  "completedAt"     TIMESTAMPTZ,
+  "createdAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT "NextAction_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "NextAction"
+  ADD CONSTRAINT "NextAction_trackInstanceId_fkey"
+  FOREIGN KEY ("trackInstanceId") REFERENCES "MatterTrackInstance"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Navigation layer indexes
+CREATE INDEX "ProceduralTrackTemplate_trackType_idx"     ON "ProceduralTrackTemplate"("trackType");
+CREATE INDEX "ProceduralStageTemplate_trackTemplateId_idx" ON "ProceduralStageTemplate"("trackTemplateId", "stageOrder");
+CREATE INDEX "MatterTrackInstance_caseId_idx"            ON "MatterTrackInstance"("caseId");
+CREATE INDEX "MatterTrackInstance_issueTrackId_idx"      ON "MatterTrackInstance"("issueTrackId");
+CREATE INDEX "MatterStageInstance_trackInstanceId_idx"   ON "MatterStageInstance"("trackInstanceId");
+CREATE INDEX "MissingInfoFlag_trackInstanceId_idx"       ON "MissingInfoFlag"("trackInstanceId");
+CREATE INDEX "NextAction_trackInstanceId_priority_idx"   ON "NextAction"("trackInstanceId", "priority");
 
 -- ─── RuleSource ───────────────────────────────────────────────────────────────
 

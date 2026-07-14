@@ -49,8 +49,9 @@ model Case {
   claims             Claim[]
   documents          CaseDocument[]
   verificationEvents VerificationEvent[]
-  outputs            Output[]
-  fieldJobs          FieldJob[]
+  outputs              Output[]
+  fieldJobs            FieldJob[]
+  matterTrackInstances MatterTrackInstance[]
 }
 
 enum CaseStatus {
@@ -97,8 +98,9 @@ model IssueTrack {
   urgencyNote      String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
-  claims           Claim[]
-  timelineEvents   TimelineEvent[]
+  claims               Claim[]
+  timelineEvents       TimelineEvent[]
+  matterTrackInstances MatterTrackInstance[]
 }
 
 enum TrackType {
@@ -329,6 +331,131 @@ model ContractorProfile {
   agreementSigned Boolean   @default(false)
   agreementDate   DateTime?
   createdAt       DateTime  @default(now())
+}
+
+// ─── NAVIGATION LAYER ─────────────────────────────────────────────────────────
+// Templates define the procedural track for a matter type.
+// Instances are created per Case/IssueTrack and track live progress.
+
+model ProceduralTrackTemplate {
+  id            String    @id @default(cuid())
+  trackType     TrackType
+  matterSubtype String    // "SUMMARY_POSSESSION" | "CUSTODY_MODIFICATION" | ...
+  displayName   String
+  jurisdiction  String    @default("MICHIGAN")
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  stages         ProceduralStageTemplate[]
+  trackInstances MatterTrackInstance[]
+}
+
+model ProceduralStageTemplate {
+  id                String    @id @default(cuid())
+  trackTemplateId   String
+  trackTemplate     ProceduralTrackTemplate  @relation(fields: [trackTemplateId], references: [id])
+  stageName         String
+  stageOrder        Int
+  isOptional        Boolean   @default(false)
+  controllingSource String    // "MCR 2.102(D)" | "MCL 554.134" | ...
+  controllingUrl    String?
+  deadlineLogic     String?   // plain-text description of the rule
+  deadlineDays      Int?      // fixed day count if rule is deterministic
+  deadlineFromEvent String?   // "FROM_SERVICE_DATE" | "FROM_FILING_DATE" | ...
+  uncertaintyNote   String?
+  createdAt         DateTime  @default(now())
+  requiredDocuments RequiredDocumentTemplate[]
+  transitions       ProceduralTransition[]     @relation("FromStage")
+  incomingTransitions ProceduralTransition[]   @relation("ToStage")
+  stageInstances    MatterStageInstance[]
+}
+
+model RequiredDocumentTemplate {
+  id              String                  @id @default(cuid())
+  stageTemplateId String
+  stageTemplate   ProceduralStageTemplate @relation(fields: [stageTemplateId], references: [id])
+  documentName    String
+  isRequired      Boolean                 @default(true)
+  sourceReference String?
+  notes           String?
+}
+
+model ProceduralTransition {
+  id          String                  @id @default(cuid())
+  fromStageId String
+  fromStage   ProceduralStageTemplate @relation("FromStage", fields: [fromStageId], references: [id])
+  toStageId   String
+  toStage     ProceduralStageTemplate @relation("ToStage", fields: [toStageId], references: [id])
+  condition   String?                 // what triggers this transition
+  isDefault   Boolean                 @default(false)
+  isBranch    Boolean                 @default(false)
+  branchLabel String?
+}
+
+model MatterTrackInstance {
+  id             String                  @id @default(cuid())
+  caseId         String
+  case           Case                    @relation(fields: [caseId], references: [id])
+  issueTrackId   String
+  issueTrack     IssueTrack              @relation(fields: [issueTrackId], references: [id])
+  templateId     String
+  template       ProceduralTrackTemplate @relation(fields: [templateId], references: [id])
+  currentStageId String?
+  status         InstanceStatus          @default(ACTIVE)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  stageInstances MatterStageInstance[]
+  missingInfoFlags MissingInfoFlag[]
+  nextActions    NextAction[]
+}
+
+model MatterStageInstance {
+  id              String                  @id @default(cuid())
+  trackInstanceId String
+  trackInstance   MatterTrackInstance     @relation(fields: [trackInstanceId], references: [id])
+  stageTemplateId String
+  stageTemplate   ProceduralStageTemplate @relation(fields: [stageTemplateId], references: [id])
+  status          StageStatus             @default(NOT_STARTED)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  deadlineDate    DateTime?
+  notes           String?
+}
+
+model MissingInfoFlag {
+  id              String              @id @default(cuid())
+  trackInstanceId String
+  trackInstance   MatterTrackInstance @relation(fields: [trackInstanceId], references: [id])
+  question        String
+  whyItMatters    String
+  resolved        Boolean             @default(false)
+  resolvedAt      DateTime?
+  createdAt       DateTime            @default(now())
+}
+
+model NextAction {
+  id              String              @id @default(cuid())
+  trackInstanceId String
+  trackInstance   MatterTrackInstance @relation(fields: [trackInstanceId], references: [id])
+  actionText      String
+  sourceReference String?
+  priority        Int                 @default(1)
+  completedAt     DateTime?
+  createdAt       DateTime            @default(now())
+}
+
+enum InstanceStatus {
+  ACTIVE
+  COMPLETED
+  STALLED
+  UNCERTAIN
+}
+
+enum StageStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  UNCERTAIN
 }
 
 // ─── RULE SOURCE ──────────────────────────────────────────────────────────────
