@@ -8,3 +8,5 @@ out/
 
 # Editor lock files
 ~$*
+
+/lib/generated/prisma
