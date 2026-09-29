@@ -52,6 +52,14 @@ model Case {
   outputs              Output[]
   fieldJobs            FieldJob[]
   matterTrackInstances MatterTrackInstance[]
+
+  // Verified record on the Veritas platform (rulebook stand/stand-matter). See lib/spine/matter.ts.
+  spineSessionId       String?   @unique
+  spineProtocolSha256  String?   // envelope hash pinned when the Matter opened
+  spineHeadSha256      String?   // last event STAND saw; its own independent witness of the record
+  holderActorId        String?
+  holderKeyId          String?
+  holderLinkTokenHash  String?   // SHA-256 of the one-time link that lets the holder bind a device key
 }
 
 enum CaseStatus {
@@ -249,6 +257,7 @@ model VerificationEvent {
   priorEventId String?
   evidenceHash String?   // SHA-256
   verifiedBy   String?   // "AH, [date], [URL]"
+  spineEventSha String?  @unique // event hash on the Veritas platform, when mirrored there
 }
 
 // ─── OUTPUT ───────────────────────────────────────────────────────────────────

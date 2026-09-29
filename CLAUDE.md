@@ -1,14 +1,29 @@
- #CLAUDE.md
+# CLAUDE.md
 
-This file# provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file guides Claude Code (claude.ai/code) when working in this repository.
 
 ---
 
 ## What This Project Is
 
-**Veritas Navigator** is a Michigan legal self-help navigation tool that guides residents through disputes (evictions, debt collection, medical billing, utility disconnection, etc.) using a structured triage flow, generates legal documents, and connects users to Veritas Field Services or licensed counsel when self-help is insufficient.
+**STAND** (this repo, historically "Veritas Navigator") organizes any real-life mess a person is working through: what happened, what they have, what the rules say, what is due when, and what they did about it. It turns a person's situation into a structured, verifiable record they own.
 
-Navigator is **not a law firm**. It describes routes, deadlines, and commonly-used procedures — it never gives legal opinions, predictions, or strategy. Every behavioral rule in this codebase enforces that line.
+STAND is **not legal-tech and not a law firm.** Legal matters (housing, debt, benefits, court) are one lane among many, and the unauthorized-practice-of-law (UPL) rules below are a guardrail for that lane, not the identity of the product. STAND never gives legal opinions, predictions, or strategy in any lane. Every behavioral rule in this codebase enforces that line.
+
+The founder's own life is Case 0001: STAND is built and tested on real, messy situations, not tidy demos.
+
+### STAND is a customer of the Veritas platform
+Every STAND Case can carry a **verified Matter record** on the Veritas platform (a separate product and repo: the evidence engine that runs rulebooks, signs and chains every step, and exports Proof Packages anyone can check). STAND uses the platform's public API like any other customer. Keep the lanes separate: do not copy platform logic into STAND, and do not put STAND-specific logic into the platform.
+
+- Rulebook: `stand/stand-matter v0.1` (copy in `lib/spine/stand-matter.v0.1.json`; the platform holds the pinned original).
+- Engine: `lib/spine/rules.mjs` is a verbatim copy of the platform's rules engine. **Never edit it here**; update it from the platform.
+- Roles: `steward` (STAND itself), `holder` (the person), `helper`, `witness`.
+- Anything STAND records stays STAND's organizing work until the holder confirms it from their own device (`record_confirmed`). STAND can never confirm, attest, or act as the holder; the engine refuses it.
+- Checks record what was compared against which published source (`confirmed` / `contradicted` / `cannot_verify`). There is no outcome for advice or "who is right", by design.
+- STAND keeps its own copy of every event hash it signed (`VerificationEvent.spineEventSha`, `Case.spineHeadSha256`). That is STAND's independent witness file; do not remove it.
+- Matter writes go through `mirror()` so a platform outage never breaks a STAND flow.
+
+Code: `lib/spine/` (client, matter bridge, browser holder key, operator guard), `app/api/matters/[caseId]/*`, `app/matters/[caseId]` (the holder's page). Test: `npx tsx scripts/test-matter-bridge.mts` with `VERITAS_PLATFORM` pointing at a checkout of the platform repo. DB fields: `prisma/spine-bridge-migration.sql`.
 
 ---
 
@@ -182,7 +197,7 @@ At MVP, Shield means the user has an active account with retained history. It do
 
 ---
 
-## Michigan Legal Categories
+## Legal Lane: Michigan Categories (first lane, not the whole product)
 
 **MVP (build Housing & Eviction first, then one-at-a-time):**
 - Housing & Eviction (MCL 554.134, MCL 600.5701 — Notice to Quit)
@@ -252,6 +267,16 @@ The AI system prompt (Parts A, B, C of the governance document — Truth Mode, G
 
 ```
 ANTHROPIC_API_KEY
+# Veritas platform bridge (see lib/spine/client.ts; values are secrets, never commit them)
+SPINE_ENABLED=1
+SPINE_API_URL
+SPINE_ANON_KEY
+NEXT_PUBLIC_SPINE_ANON_KEY
+SPINE_STEWARD_ACTOR_ID
+SPINE_STEWARD_KEY_ID
+SPINE_STEWARD_PRIVATE_KEY
+SPINE_HOLDER_ENROLL_CODE
+STAND_OPERATOR_TOKEN               # required for Matter write routes until STAND has user accounts
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY

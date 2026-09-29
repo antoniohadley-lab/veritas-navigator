@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { sha256 } from '@/lib/hash'
+import { matters, mirror } from '@/lib/spine'
 
 const BUCKET = 'case-documents'
 
@@ -102,11 +103,16 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    // Mirror onto the Case's verified Matter record, if it has one. Never blocks the upload.
+    const spineEvent = await mirror('document', () =>
+      matters().document(caseId, buffer, file.type || 'application/octet-stream', description || file.name))
+
     return NextResponse.json({
       documentId: doc.id,
       fileHash,
       filename: file.name,
       storageUri,
+      spineEventSha: spineEvent?.event_sha256 ?? null,
     })
   } catch (err) {
     console.error('[/api/upload] error:', err)
