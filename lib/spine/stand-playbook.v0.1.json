@@ -1,0 +1,79 @@
+{
+  "namespace": "stand",
+  "name": "stand-playbook",
+  "version": "0.1",
+  "definition": {
+    "profile": "STAND Playbook: rules learned from recorded outcomes",
+    "scope": "The rules STAND works by, each proposed from real Matter outcomes and adopted or retired only by the Chairman.",
+    "open_record": true,
+    "roles": {
+      "steward": "STAND itself, which proposes rules from the outcomes it has recorded.",
+      "chairman": "The person with authority to adopt or retire a rule. Nothing enters the playbook without this signature."
+    },
+    "opening": {
+      "event_type": "session_opened",
+      "role": "steward"
+    },
+    "authority": {
+      "participant_added": [
+        "steward"
+      ],
+      "rule_proposed": [
+        "steward",
+        "chairman"
+      ],
+      "rule_adopted": [
+        "chairman"
+      ],
+      "rule_retired": [
+        "chairman"
+      ],
+      "note_recorded": [
+        "steward",
+        "chairman"
+      ],
+      "session_closed": [
+        "chairman"
+      ]
+    },
+    "references": {
+      "rule_adopted": [
+        {
+          "field": "proposal_event_sha256",
+          "event_type": "rule_proposed"
+        }
+      ],
+      "rule_retired": [
+        {
+          "field": "rule_event_sha256",
+          "event_type": "rule_adopted"
+        }
+      ]
+    },
+    "fields": {
+      "rule_proposed": [
+        "rule",
+        "domain",
+        "evidence"
+      ],
+      "rule_retired": [
+        "reason"
+      ],
+      "note_recorded": [
+        "text"
+      ]
+    },
+    "completion": {
+      "session_closed": []
+    },
+    "read_roles": [
+      "steward",
+      "chairman"
+    ],
+    "export_roles": [
+      "steward",
+      "chairman"
+    ],
+    "boundary": "This playbook records rules STAND proposed from recorded outcomes and which of them the Chairman adopted or retired. Evidence cites events in separate Matter records; check those records on their own. Adopting a rule is a governance decision, not a promise that it fits every situation."
+  }
+}

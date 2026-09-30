@@ -1,5 +1,6 @@
 /**
- * The holder's side of a STAND Matter, running in the person's own browser.
+ * A person's own signing device for STAND records (a holder on a Matter, or the Chairman on the Playbook),
+ * running in their browser.
  * The signing key is created here as non-extractable and kept in IndexedDB: it cannot be copied
  * out of this device, and STAND's servers never see it. This device also keeps its own witness
  * record (every event hash it signed, and the last head it saw) for independent verification.
@@ -11,7 +12,8 @@ export const SPINE_API_DEFAULT =
 const ANON = process.env.NEXT_PUBLIC_SPINE_ANON_KEY
 
 export interface HolderDevice {
-  caseId: string
+  caseId: string          // storage key: the Case id, or 'playbook'
+  role: 'holder' | 'chairman'
   sessionId: string
   actorId: string
   keyId: string
@@ -59,18 +61,25 @@ async function call<T = any>(api: string, action: string, body: object): Promise
   return out
 }
 
-/** Creates this device's key and binds it to the Matter using the one-time link. */
-export async function linkThisDevice(caseId: string, linkToken: string, displayName: string): Promise<HolderDevice> {
+async function link(storeKey: string, role: HolderDevice['role'], url: string, linkToken: string, displayName: string): Promise<HolderDevice> {
   const { privateKey, publicKeyB64 } = await newKey()
-  const r = await fetch(`/api/matters/${encodeURIComponent(caseId)}/holder`, {
+  const r = await fetch(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ linkToken, publicKey: publicKeyB64, displayName }),
   })
   const out = await r.json()
   if (!r.ok) throw new Error(out.error ?? 'could not link this device')
-  const d: HolderDevice = { caseId, sessionId: out.sessionId, actorId: out.actorId, keyId: out.keyId, publicKeyB64, api: out.api ?? SPINE_API_DEFAULT, seen: [], head: null, protocolSha256: null, privateKey }
+  const d: HolderDevice = { caseId: storeKey, role, sessionId: out.sessionId, actorId: out.actorId, keyId: out.keyId, publicKeyB64, api: out.api ?? SPINE_API_DEFAULT, seen: [], head: null, protocolSha256: null, privateKey }
   await saveDevice(d)
   return d
 }
+
+/** Creates this device's key and binds it to the Matter using the one-time link. */
+export const linkThisDevice = (caseId: string, linkToken: string, displayName: string) =>
+  link(caseId, 'holder', `/api/matters/${encodeURIComponent(caseId)}/holder`, linkToken, displayName)
+
+/** Binds this device as the Chairman of STAND's Playbook. */
+export const linkChairmanDevice = (linkToken: string, displayName: string) =>
+  link('playbook', 'chairman', '/api/playbook/chairman', linkToken, displayName)
 
 async function signedRead(d: HolderDevice, action: string) {
   const t = new Date().toISOString()
@@ -91,11 +100,11 @@ export async function readRecord(d: HolderDevice) {
   return st
 }
 
-/** Signs and appends one holder event at the current head. */
+/** Signs and appends one event, in this device's role, at the current head. */
 export async function appendAsHolder(d: HolderDevice, event_type: string, payload: Record<string, unknown>) {
   for (let i = 0; i < 3; i++) {
     const st = await readRecord(d)
-    const e = { seq: st.next_seq, event_type, actor_id: d.actorId, role: 'holder', prev_event_sha256: st.prev_event_sha256, client_time_iso: new Date().toISOString() }
+    const e = { seq: st.next_seq, event_type, actor_id: d.actorId, role: d.role ?? 'holder', prev_event_sha256: st.prev_event_sha256, client_time_iso: new Date().toISOString() }
     const eventSha = await sha256Hex(eventHeader(d.sessionId, e, await sha256Hex(canonical(payload))))
     try {
       const r = await call(d.api, 'append', { session_id: d.sessionId, ...e, key_id: d.keyId, payload, event_sha256: eventSha, signature: await sign(d, eventSha) })
@@ -110,10 +119,12 @@ export async function appendAsHolder(d: HolderDevice, event_type: string, payloa
 export async function exportWithWitness(d: HolderDevice) {
   const pkg = await call(d.api, 'export', await signedRead(d, 'export'))
   const witness = {
-    format: 'veritas-witness/v1', session_id: d.sessionId, witnessed_by: 'Holder device',
+    format: 'veritas-witness/v1', session_id: d.sessionId, witnessed_by: d.role === 'chairman' ? 'Chairman device' : 'Holder device',
     expected_protocol_sha256: d.protocolSha256,
     trusted_keys: [{ id: d.keyId, actor_id: d.actorId, public_key: d.publicKeyB64 }],
     seen_event_sha256s: d.seen, final_head_sha256: d.head,
   }
   return { pkg, witness }
 }
+
+export const appendAs = appendAsHolder

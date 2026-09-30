@@ -1,7 +1,7 @@
 /**
  * STAND Matters on the Veritas platform.
  *
- * Every STAND Case can carry a verified Matter record (rulebook stand/stand-matter v0.1):
+ * Every STAND Case can carry a verified Matter record (rulebook stand/stand-matter v0.2):
  *   - STAND (steward) records what the person said, what was attached, what was checked
  *     against which published source, and what deadlines were noted.
  *   - The person (holder) binds their own device key and confirms or rejects what STAND recorded,
@@ -18,8 +18,9 @@
 import { createHash, randomBytes } from 'crypto'
 import * as spine from './client'
 import type { Signer } from './client'
+import { deriveMoves } from './moves'
 
-export const MATTER_RULEBOOK = { namespace: 'stand', name: 'stand-matter', version: '0.1' } as const
+export const MATTER_RULEBOOK = { namespace: 'stand', name: 'stand-matter', version: '0.2' } as const
 
 export interface CaseSpineFields {
   id: string
@@ -123,6 +124,30 @@ export class MatterBridge {
   }
   deadline(caseId: string, description: string, due: string, controlling_source: string) {
     return this.record(caseId, { event_type: 'deadline_noted', role: 'steward', payload: { description, due, controlling_source } })
+  }
+
+  // ---- Moves: options with the rule each rests on. Only the holder decides; outcomes close the loop. ----
+
+  proposeMove(caseId: string, m: { move: string; rationale: string; governing_rule: string; rank?: number; deadline?: string; depends_on?: string[]; unlocks?: string[] }) {
+    const payload: Record<string, unknown> = { move: m.move, rationale: m.rationale, governing_rule: m.governing_rule }
+    if (m.rank !== undefined) payload.rank = m.rank
+    if (m.deadline) payload.deadline = m.deadline
+    if (m.depends_on?.length) payload.depends_on = m.depends_on
+    if (m.unlocks?.length) payload.unlocks = m.unlocks
+    return this.record(caseId, { event_type: 'move_proposed', role: 'steward', payload })
+  }
+
+  /** STAND records an outcome it observed (e.g. a document arrived). Only for moves the holder chose. */
+  async recordOutcome(caseId: string, decisionEventSha: string, result: 'worked' | 'partial' | 'stalled' | 'failed', what_happened: string) {
+    const st = await this.view(caseId)
+    const chosen = st && deriveMoves(st.events).some((m) => m.decision?.event_sha256 === decisionEventSha && m.decision.decision === 'chosen')
+    if (!chosen) throw new Error('outcomes are recorded only for moves the person chose')
+    return this.record(caseId, { event_type: 'move_outcome', role: 'steward', payload: { decision_event_sha256: decisionEventSha, result, what_happened } })
+  }
+
+  async moves(caseId: string) {
+    const st = await this.view(caseId)
+    return st ? deriveMoves(st.events) : null
   }
 
   // ---- Reading and proof ----

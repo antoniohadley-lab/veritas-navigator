@@ -492,3 +492,17 @@ enum RuleSourceType {
   official_form
   administrative_rule
 }
+
+// ─── STAND PLAYBOOK (Veritas platform) ───────────────────────────────────────
+// One row: STAND's side of its playbook record (rulebook stand/stand-playbook). See lib/spine/playbook.ts.
+
+model Playbook {
+  id                    String   @id @default("stand")
+  sessionId             String?  @unique
+  protocolSha256        String?
+  headSha256            String?
+  chairmanActorId       String?
+  chairmanKeyId         String?
+  chairmanLinkTokenHash String?
+  createdAt             DateTime @default(now())
+}

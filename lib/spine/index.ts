@@ -2,6 +2,7 @@
 import { prisma } from '@/lib/prisma'
 import { stewardFromEnv } from './client'
 import { MatterBridge, type MatterStore } from './matter'
+import { PlaybookBridge, type PlaybookStore } from './playbook'
 
 export { mirror, MATTER_RULEBOOK } from './matter'
 
@@ -31,4 +32,27 @@ let bridge: MatterBridge | null = null
 export function matters(): MatterBridge {
   bridge ??= new MatterBridge(prismaMatterStore, stewardFromEnv())
   return bridge
+}
+
+const PLAYBOOK_ID = 'stand'
+export const prismaPlaybookStore: PlaybookStore = {
+  get: () => prisma.playbook.findUnique({ where: { id: PLAYBOOK_ID } }),
+  async save(data) { await prisma.playbook.upsert({ where: { id: PLAYBOOK_ID }, create: { id: PLAYBOOK_ID, ...data }, update: data }) },
+  async logEvent(r) {
+    await prisma.verificationEvent.create({
+      data: { actorId: r.actorId, roleType: r.roleType, eventType: r.eventType, payloadType: 'spine_playbook_event', spineEventSha: r.spineEventSha },
+    })
+  },
+  async signedEventShas(actorId) {
+    const rows = await prisma.verificationEvent.findMany({
+      where: { caseId: null, actorId, payloadType: 'spine_playbook_event', spineEventSha: { not: null } }, select: { spineEventSha: true }, orderBy: { timestamp: 'asc' },
+    })
+    return rows.map((r) => r.spineEventSha!)
+  },
+}
+
+let playbookBridge: PlaybookBridge | null = null
+export function playbook(): PlaybookBridge {
+  playbookBridge ??= new PlaybookBridge(prismaPlaybookStore, stewardFromEnv())
+  return playbookBridge
 }

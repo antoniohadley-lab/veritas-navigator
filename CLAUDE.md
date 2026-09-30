@@ -15,13 +15,15 @@ The founder's own life is Case 0001: STAND is built and tested on real, messy si
 ### STAND is a customer of the Veritas platform
 Every STAND Case can carry a **verified Matter record** on the Veritas platform (a separate product and repo: the evidence engine that runs rulebooks, signs and chains every step, and exports Proof Packages anyone can check). STAND uses the platform's public API like any other customer. Keep the lanes separate: do not copy platform logic into STAND, and do not put STAND-specific logic into the platform.
 
-- Rulebook: `stand/stand-matter v0.1` (copy in `lib/spine/stand-matter.v0.1.json`; the platform holds the pinned original).
+- Rulebooks: `stand/stand-matter v0.2` (Matters, with moves and outcomes) and `stand/stand-playbook v0.1` (rules learned from outcomes). Copies in `lib/spine/*.json`; the platform holds the pinned originals.
 - Engine: `lib/spine/rules.mjs` is a verbatim copy of the platform's rules engine. **Never edit it here**; update it from the platform.
 - Roles: `steward` (STAND itself), `holder` (the person), `helper`, `witness`.
 - Anything STAND records stays STAND's organizing work until the holder confirms it from their own device (`record_confirmed`). STAND can never confirm, attest, or act as the holder; the engine refuses it.
 - Checks record what was compared against which published source (`confirmed` / `contradicted` / `cannot_verify`). There is no outcome for advice or "who is right", by design.
 - STAND keeps its own copy of every event hash it signed (`VerificationEvent.spineEventSha`, `Case.spineHeadSha256`). That is STAND's independent witness file; do not remove it.
 - Matter writes go through `mirror()` so a platform outage never breaks a STAND flow.
+- **How STAND learns (never skip a step):** STAND proposes moves, each with the governing rule it rests on (`move_proposed`). Only the holder decides (`move_decided`: chosen / deferred / declined). Outcomes close the loop (`move_outcome`: worked / partial / stalled / failed). STAND proposes playbook rules citing outcome evidence (`rule_proposed`); only the Chairman adopts or retires them (`rule_adopted` / `rule_retired`). Nothing becomes a rule without outcomes and the Chairman's signature. Code: `lib/spine/moves.ts`, `lib/spine/playbook.ts`, `app/playbook`.
+- **The repo is public: never commit real case content** (names, family details, addresses). Real Matters are seeded from local files that stay out of git (`*.local.json`).
 
 Code: `lib/spine/` (client, matter bridge, browser holder key, operator guard), `app/api/matters/[caseId]/*`, `app/matters/[caseId]` (the holder's page). Test: `npx tsx scripts/test-matter-bridge.mts` with `VERITAS_PLATFORM` pointing at a checkout of the platform repo. DB fields: `prisma/spine-bridge-migration.sql`.
 

@@ -13,3 +13,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS "Case_spineSessionId_key" ON "Case"("spineSess
 ALTER TABLE "VerificationEvent"
   ADD COLUMN IF NOT EXISTS "spineEventSha" TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS "VerificationEvent_spineEventSha_key" ON "VerificationEvent"("spineEventSha");
+
+-- STAND Playbook: one row holding STAND's side of the playbook record.
+CREATE TABLE IF NOT EXISTS "Playbook" (
+  "id"                    TEXT PRIMARY KEY DEFAULT 'stand',
+  "sessionId"             TEXT UNIQUE,
+  "protocolSha256"        TEXT,
+  "headSha256"            TEXT,
+  "chairmanActorId"       TEXT,
+  "chairmanKeyId"         TEXT,
+  "chairmanLinkTokenHash" TEXT,
+  "createdAt"             TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

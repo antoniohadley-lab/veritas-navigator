@@ -30,3 +30,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# real case content never goes in this public repo
+*.local.json
+*.local.mjs

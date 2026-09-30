@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { loadDevice, linkThisDevice, readRecord, appendAsHolder, exportWithWitness, type HolderDevice } from '@/lib/spine/browser';
+import { deriveMoves, STATUS_LABEL, type Move } from '@/lib/spine/moves';
 
 type Ev = { seq: number; event_type: string; role: string; actor_id: string; event_sha256: string; payload_canonical: string; client_time_iso: string; display_name?: string };
 
@@ -25,6 +26,9 @@ const LABEL: Record<string, string> = {
   correction_linked: 'Correction',
   note_recorded: 'Note',
   session_closed: 'Matter closed',
+  move_proposed: 'Move proposed',
+  move_decided: 'Your decision',
+  move_outcome: 'What happened',
 };
 const CONFIRMABLE = new Set(['statement_recorded', 'fact_logged', 'claim_checked', 'deadline_noted', 'document_attached']);
 const RESULT: Record<string, string> = { confirmed: 'matches the source', contradicted: 'does not match the source', cannot_verify: 'could not be checked' };
@@ -42,6 +46,9 @@ function describe(e: Ev): string {
     case 'record_confirmed': return `${p.event_sha256s.length} item(s) marked ${p.confirmation === 'accurate' ? 'accurate' : 'NOT accurate'}${p.note ? `: ${p.note}` : ''}`;
     case 'witness_attested': return `“${p.statement}”`;
     case 'action_taken': return p.action;
+    case 'move_proposed': return `${p.move} (rule: ${p.governing_rule})`;
+    case 'move_decided': return `${p.decision}${p.reason ? `: ${p.reason}` : ''}`;
+    case 'move_outcome': return `${p.result}: ${p.what_happened}`;
     default: return p.text ?? p.reason ?? '';
   }
 }
@@ -60,6 +67,7 @@ export default function MatterPage() {
   const [name, setName] = useState('');
   const [words, setWords] = useState('');
   const [did, setDid] = useState('');
+  const [outcome, setOutcome] = useState<{ sha: string; result: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -106,6 +114,11 @@ export default function MatterPage() {
 
         {device && record && (
           <>
+            <MovesSection moves={deriveMoves(record.events)} busy={busy} outcome={outcome} setOutcome={setOutcome}
+              decide={(m, decision) => { const reason = decision === 'chosen' ? '' : (prompt('Why? (optional)') ?? ''); run(() => appendAsHolder(device, 'move_decided', { move_event_sha256: m.event_sha256, decision, ...(reason.trim() ? { reason: reason.trim() } : {}) }), 'Decision saved and signed.'); }}
+              report={(m, result, text) => run(async () => { await appendAsHolder(device, 'move_outcome', { decision_event_sha256: m.decision!.event_sha256, result, what_happened: text }); setOutcome(null); }, 'Outcome saved and signed.')} />
+
+            <h2 className="pt-2 font-semibold text-veritas-blue">Full record</h2>
             <section className="space-y-2">
               {record.events.map((e) => {
                 const mine = e.actor_id === device.actorId;
@@ -154,5 +167,52 @@ export default function MatterPage() {
         )}
       </div>
     </main>
+  );
+}
+
+function MovesSection({ moves, busy, decide, report, outcome, setOutcome }: {
+  moves: Move[]; busy: boolean;
+  decide: (m: Move, d: 'chosen' | 'deferred' | 'declined') => void;
+  report: (m: Move, result: string, text: string) => void;
+  outcome: { sha: string; result: string; text: string } | null;
+  setOutcome: (o: { sha: string; result: string; text: string } | null) => void;
+}) {
+  if (!moves.length) return null;
+  return (
+    <section className="space-y-2">
+      <h2 className="font-semibold text-veritas-blue">Your moves</h2>
+      <p className="text-sm text-gray-600">Each move names the rule it rests on. You decide which to take; nothing moves without you.</p>
+      {moves.map((m) => (
+        <article key={m.event_sha256} className="rounded-lg bg-white p-4 shadow-sm">
+          <div className="flex justify-between text-xs text-gray-500">
+            <span>{m.rank !== null ? `#${m.rank} · ` : ''}{STATUS_LABEL[m.status]}</span>
+            {m.deadline && <span>by {m.deadline}</span>}
+          </div>
+          <p className="mt-1 font-medium text-gray-900">{m.move}</p>
+          <p className="text-sm text-gray-700">{m.rationale}</p>
+          <p className="text-xs text-gray-500">Rule: {m.governing_rule}{m.depends_on.length ? ` · Needs: ${m.depends_on.join(', ')}` : ''}{m.unlocks.length ? ` · Unlocks: ${m.unlocks.join(', ')}` : ''}</p>
+          {m.outcomes.map((o) => <p key={o.event_sha256} className="mt-1 text-sm text-gray-800">→ {STATUS_LABEL[o.result]}: {o.what_happened}</p>)}
+          {(m.status === 'open' || m.status === 'deferred') && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button disabled={busy} className="rounded bg-veritas-teal px-3 py-1 text-sm text-white" onClick={() => decide(m, 'chosen')}>Take this move</button>
+              {m.status === 'open' && <button disabled={busy} className="rounded border px-3 py-1 text-sm" onClick={() => decide(m, 'deferred')}>Later</button>}
+              <button disabled={busy} className="rounded border border-red-300 px-3 py-1 text-sm text-red-700" onClick={() => decide(m, 'declined')}>Not taking it</button>
+            </div>
+          )}
+          {m.decision?.decision === 'chosen' && (outcome?.sha === m.event_sha256 ? (
+            <div className="mt-3 space-y-2">
+              <select className="w-full rounded border p-2" value={outcome.result} onChange={(e) => setOutcome({ ...outcome, result: e.target.value })}>
+                <option value="worked">Worked</option><option value="partial">Partly worked</option>
+                <option value="stalled">Stalled</option><option value="failed">Didn&apos;t work</option>
+              </select>
+              <input className="w-full rounded border p-2" placeholder="What happened" value={outcome.text} onChange={(e) => setOutcome({ ...outcome, text: e.target.value })} />
+              <button disabled={busy || !outcome.text.trim()} className="rounded bg-veritas-blue px-3 py-1 text-sm text-white disabled:opacity-50" onClick={() => report(m, outcome.result, outcome.text.trim())}>Save what happened</button>
+            </div>
+          ) : (
+            <button disabled={busy} className="mt-3 rounded border border-veritas-blue px-3 py-1 text-sm text-veritas-blue" onClick={() => setOutcome({ sha: m.event_sha256, result: 'worked', text: '' })}>Record what happened</button>
+          ))}
+        </article>
+      ))}
+    </section>
   );
 }
